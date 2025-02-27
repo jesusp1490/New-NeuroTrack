@@ -1,35 +1,19 @@
 "use client"
 
-import type React from "react"
+import React from "react"
 import { createContext, useContext, useEffect, useState } from "react"
-import { type User, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword } from "firebase/auth"
+import { User, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword } from "firebase/auth"
 import { doc, getDoc, setDoc } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
-
-export type UserRole = "cirujano" | "neurofisiologo" | "administrativo" | "jefe_departamento"
-export type Gender = "male" | "female"
-
-type UserData = {
-  role: UserRole
-  gender: Gender
-  profilePictureUrl: string
-  hospital?: string
-}
+import { User as DbUser } from "@/types"
 
 type AuthContextType = {
   user: User | null
-  userData: UserData | null
+  userData: DbUser | null
   loading: boolean
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
-  signup: (
-    email: string,
-    password: string,
-    role: UserRole,
-    gender: Gender,
-    profilePictureUrl: string,
-    hospital?: string,
-  ) => Promise<void>
+  signup: (email: string, password: string, name: string, role: DbUser["role"], hospitalId: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -45,7 +29,7 @@ export const useAuth = () => useContext(AuthContext)
 
 export function AuthContextProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
-  const [userData, setUserData] = useState<UserData | null>(null)
+  const [userData, setUserData] = useState<DbUser | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -55,7 +39,7 @@ export function AuthContextProvider({ children }: { children: React.ReactNode })
         const userDocRef = doc(db, "users", user.uid)
         const userDoc = await getDoc(userDocRef)
         if (userDoc.exists()) {
-          setUserData(userDoc.data() as UserData)
+          setUserData({ id: userDoc.id, ...userDoc.data() } as DbUser)
         }
       } else {
         setUserData(null)
@@ -74,17 +58,18 @@ export function AuthContextProvider({ children }: { children: React.ReactNode })
     await signOut(auth)
   }
 
-  const signup = async (
-    email: string,
-    password: string,
-    role: UserRole,
-    gender: Gender,
-    profilePictureUrl: string,
-    hospital?: string,
-  ) => {
+  const signup = async (email: string, password: string, name: string, role: DbUser["role"], hospitalId: string) => {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password)
     const user = userCredential.user
-    const userData: UserData = { role, gender, profilePictureUrl, ...(hospital && { hospital }) }
+    const now = new Date().toISOString()
+    const userData: Omit<DbUser, "id"> = {
+      email,
+      name,
+      role,
+      hospitalId,
+      createdAt: now,
+      updatedAt: now,
+    }
     await setDoc(doc(db, "users", user.uid), userData)
   }
 
