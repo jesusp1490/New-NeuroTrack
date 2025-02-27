@@ -9,7 +9,7 @@ export default function AdministrativoDashboard() {
   return (
     <div className="p-4">
       <h1 className="text-2xl font-bold mb-4">Administrativo Dashboard</h1>
-      <p>Welcome, {userData?.user?.displayName}</p>
+      <p>Welcome, {userData?.name}</p>
       <HospitalSelector />
       <OperatingRoomCalendar />
       <NotificationHandler />

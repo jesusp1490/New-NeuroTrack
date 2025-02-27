@@ -9,6 +9,7 @@ export interface Hospital {
 export interface Room {
   id: string
   name: string
+  // Add other properties as needed
 }
 
 export interface User {
@@ -31,6 +32,7 @@ export interface Booking {
   roomId: string
   surgeonId: string
   surgeryType: string
+  status: "scheduled" | "completed" | "cancelled"
 }
 
 export interface Surgery {
@@ -54,6 +56,6 @@ export interface Shift {
   date: string
   hospitalId: string
   neurophysiologistId: string
-  type: "morning" | "afternoon" | "night"
+  type: "morning" | "afternoon"
 }
 

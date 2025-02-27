@@ -1,101 +1,122 @@
-import React from "react"
-import { useState } from "react"
+"use client"
 
-type Shift = {
-  id: string
-  date: string
-  startTime: string
-  endTime: string
-}
+import React from "react"
+import { useState, useEffect, useCallback } from "react"
+import { addDoc, collection, query, where, getDocs, deleteDoc, doc } from "firebase/firestore"
+import { db } from "@/lib/firebase"
+import { useAuth } from "@/app/context/AuthContext"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Calendar } from "@/components/ui/calendar"
+import { Shift } from "@/types"
 
 export default function NeurofisiologoShiftManager() {
+  const { userData } = useAuth()
   const [shifts, setShifts] = useState<Shift[]>([])
-  const [newShift, setNewShift] = useState<Omit<Shift, "id">>({
+  const [newShift, setNewShift] = useState<Omit<Shift, "id" | "neurophysiologistId" | "booked" | "createdAt">>({
     date: "",
-    startTime: "",
-    endTime: "",
+    type: "morning",
+    hospitalId: userData?.hospitalId || "",
   })
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date())
 
-  const addShift = (e: React.FormEvent) => {
-    e.preventDefault()
-    const shift: Shift = {
-      id: Date.now().toString(),
-      ...newShift,
-    }
-    setShifts([...shifts, shift])
-    setNewShift({ date: "", startTime: "", endTime: "" })
+  const fetchShifts = async () => {
+    if (!userData?.id) return
+
+    const shiftsRef = collection(db, "shifts")
+    const q = query(
+      shiftsRef,
+      where("neurophysiologistId", "==", userData.id),
+      where("date", ">=", new Date().toISOString().split("T")[0]),
+    )
+    const querySnapshot = await getDocs(q)
+    const fetchedShifts = querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as Shift)
+    setShifts(fetchedShifts)
   }
 
-  const removeShift = (id: string) => {
-    setShifts(shifts.filter((shift) => shift.id !== id))
+  const memoizedFetchShifts = useCallback(fetchShifts, [])
+
+  useEffect(() => {
+    if (userData?.id) {
+      memoizedFetchShifts()
+    }
+  }, [userData?.id, memoizedFetchShifts])
+
+  const addShift = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!userData?.id || !selectedDate) return
+
+    const shift: Omit<Shift, "id"> = {
+      ...newShift,
+      date: selectedDate.toISOString().split("T")[0],
+      neurophysiologistId: userData.id,
+      booked: false,
+      createdAt: new Date().toISOString(),
+    }
+
+    try {
+      await addDoc(collection(db, "shifts"), shift)
+      await memoizedFetchShifts()
+      setNewShift({ ...newShift, type: "morning" })
+      setSelectedDate(undefined)
+    } catch (error) {
+      console.error("Error adding shift:", error)
+    }
+  }
+
+  const removeShift = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "shifts", id))
+      await memoizedFetchShifts()
+    } catch (error) {
+      console.error("Error removing shift:", error)
+    }
   }
 
   return (
-    <div className="mt-4">
-      <h3 className="text-lg font-medium text-gray-900">Manage Shifts</h3>
-      <form onSubmit={addShift} className="mt-2 space-y-4">
-        <div>
-          <label htmlFor="date" className="block text-sm font-medium text-gray-700">
-            Date
-          </label>
-          <input
-            type="date"
-            id="date"
-            value={newShift.date}
-            onChange={(e) => setNewShift({ ...newShift, date: e.target.value })}
-            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            required
-          />
+    <Card>
+      <CardHeader>
+        <CardTitle>Manage Shifts</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={addShift} className="space-y-4">
+          <div>
+            <Calendar mode="single" selected={selectedDate} onSelect={setSelectedDate} className="rounded-md border" />
+          </div>
+          <div>
+            <Select
+              value={newShift.type}
+              onValueChange={(value: "morning" | "afternoon") => setNewShift({ ...newShift, type: value })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select shift type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="morning">Morning</SelectItem>
+                <SelectItem value="afternoon">Afternoon</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <Button type="submit">Add Shift</Button>
+        </form>
+        <div className="mt-6">
+          <h3 className="text-lg font-medium">Your Shifts</h3>
+          <ul className="mt-2 space-y-2">
+            {shifts.map((shift) => (
+              <li key={shift.id} className="flex justify-between items-center">
+                <span>
+                  {new Date(shift.date).toLocaleDateString()} - {shift.type}
+                </span>
+                <Button variant="destructive" onClick={() => removeShift(shift.id)}>
+                  Remove
+                </Button>
+              </li>
+            ))}
+          </ul>
         </div>
-        <div>
-          <label htmlFor="startTime" className="block text-sm font-medium text-gray-700">
-            Start Time
-          </label>
-          <input
-            type="time"
-            id="startTime"
-            value={newShift.startTime}
-            onChange={(e) => setNewShift({ ...newShift, startTime: e.target.value })}
-            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            required
-          />
-        </div>
-        <div>
-          <label htmlFor="endTime" className="block text-sm font-medium text-gray-700">
-            End Time
-          </label>
-          <input
-            type="time"
-            id="endTime"
-            value={newShift.endTime}
-            onChange={(e) => setNewShift({ ...newShift, endTime: e.target.value })}
-            className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            required
-          />
-        </div>
-        <button
-          type="submit"
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-        >
-          Add Shift
-        </button>
-      </form>
-      <ul className="mt-4 divide-y divide-gray-200">
-        {shifts.map((shift) => (
-          <li key={shift.id} className="py-4 flex justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-900">{shift.date}</p>
-              <p className="text-sm text-gray-500">
-                {shift.startTime} - {shift.endTime}
-              </p>
-            </div>
-            <button onClick={() => removeShift(shift.id)} className="text-red-600 hover:text-red-800">
-              Remove
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
+      </CardContent>
+    </Card>
   )
 }
 

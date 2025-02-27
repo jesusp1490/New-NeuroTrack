@@ -9,7 +9,7 @@ export default function JefeDepartamentoDashboard() {
   return (
     <div className="p-4">
       <h1 className="text-2xl font-bold mb-4">Jefe de Departamento Dashboard</h1>
-      <p>Welcome, Dr. {userData?.user?.displayName}</p>
+      <p>Welcome, Dr. {userData?.name}</p>
       <HospitalSelector />
       <OperatingRoomCalendar />
       <NeurofisiologoShiftManager />

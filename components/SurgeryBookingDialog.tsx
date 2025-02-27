@@ -2,93 +2,156 @@
 
 import React from "react"
 import { useState } from "react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { addDoc, collection, query, where, getDocs } from "firebase/firestore"
+import { db } from "@/lib/firebase"
 
-export default function SurgeryBookingDialog() {
-  const [isOpen, setIsOpen] = useState(false)
-  const [surgeryType, setSurgeryType] = useState("")
-  const [duration, setDuration] = useState("")
-  const [notes, setNotes] = useState("")
+interface Props {
+  isOpen: boolean
+  onClose: () => void
+  onComplete: (event: any) => void
+  selectedSlot: { start: Date; end: Date } | null
+  userData: { hospitalId?: string } | null
+}
 
-  const handleSubmit = (e: React.FormEvent) => {
+const surgeryTypes = [
+  { id: "tipo1", name: "Tipo 1 - Cirugía General" },
+  { id: "tipo2", name: "Tipo 2 - Neurocirugía" },
+  { id: "tipo3", name: "Tipo 3 - Cirugía Especializada" },
+]
+
+export function SurgeryBookingDialog({ isOpen, onClose, onComplete, selectedSlot, userData }: Props) {
+  const [formData, setFormData] = useState({
+    surgeryType: "",
+    estimatedDuration: 60,
+    additionalNotes: "",
+  })
+  const [isChecking, setIsChecking] = useState(false)
+
+  const checkNeurophysiologistAvailability = async (date: Date) => {
+    const shiftsRef = collection(db, "shifts")
+    const shiftType = date.getHours() < 12 ? "morning" : "afternoon"
+
+    const q = query(
+      shiftsRef,
+      where("date", "==", date.toISOString().split("T")[0]),
+      where("type", "==", shiftType),
+      where("booked", "==", false),
+      where("hospitalId", "==", userData?.hospitalId),
+    )
+
+    const querySnapshot = await getDocs(q)
+    return !querySnapshot.empty
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // Handle the surgery booking logic here
-    console.log("Surgery booked:", { surgeryType, duration, notes })
-    setIsOpen(false)
+    if (!selectedSlot) return
+
+    setIsChecking(true)
+    try {
+      const hasAvailableNeurophysiologist = await checkNeurophysiologistAvailability(selectedSlot.start)
+
+      if (!hasAvailableNeurophysiologist) {
+        alert("No neurophysiologists available for the selected time slot. Please choose another time.")
+        setIsChecking(false)
+        return
+      }
+
+      const booking = {
+        surgeryType: formData.surgeryType,
+        date: selectedSlot.start.toISOString(),
+        estimatedDuration: formData.estimatedDuration,
+        additionalNotes: formData.additionalNotes,
+        createdAt: new Date().toISOString(),
+        status: "scheduled",
+        neurophysiologistIds: [], // Will be assigned later
+        hospitalId: userData?.hospitalId,
+      }
+
+      const docRef = await addDoc(collection(db, "bookings"), booking)
+
+      onComplete({
+        id: docRef.id,
+        title: `Surgery: ${formData.surgeryType}`,
+        start: selectedSlot.start,
+        end: new Date(selectedSlot.start.getTime() + formData.estimatedDuration * 60000),
+        type: "surgery",
+      })
+    } catch (error) {
+      console.error("Error booking surgery:", error)
+      alert("Error booking surgery. Please try again.")
+    } finally {
+      setIsChecking(false)
+    }
   }
 
   return (
-    <>
-      <button
-        onClick={() => setIsOpen(true)}
-        className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-      >
-        Book Surgery
-      </button>
-
-      {isOpen && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Book a Surgery</h3>
-            <form onSubmit={handleSubmit}>
-              <div className="mb-4">
-                <label htmlFor="surgery-type" className="block text-sm font-medium text-gray-700">
-                  Surgery Type
-                </label>
-                <select
-                  id="surgery-type"
-                  value={surgeryType}
-                  onChange={(e) => setSurgeryType(e.target.value)}
-                  className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
-                  required
-                >
-                  <option value="">Select a surgery type</option>
-                  <option value="type1">Surgery Type 1</option>
-                  <option value="type2">Surgery Type 2</option>
-                  <option value="type3">Surgery Type 3</option>
-                </select>
-              </div>
-              <div className="mb-4">
-                <label htmlFor="duration" className="block text-sm font-medium text-gray-700">
-                  Estimated Duration (hours)
-                </label>
-                <input
-                  type="number"
-                  id="duration"
-                  value={duration}
-                  onChange={(e) => setDuration(e.target.value)}
-                  className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
-                  required
-                />
-              </div>
-              <div className="mb-4">
-                <label htmlFor="notes" className="block text-sm font-medium text-gray-700">
-                  Additional Notes
-                </label>
-                <textarea
-                  id="notes"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
-                  rows={3}
-                ></textarea>
-              </div>
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setIsOpen(false)}
-                  className="mr-2 px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
-                  Book
-                </button>
-              </div>
-            </form>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Book Surgery</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="surgeryType">Surgery Type</Label>
+            <Select
+              value={formData.surgeryType}
+              onValueChange={(value: string) => setFormData({ ...formData, surgeryType: value })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select surgery type" />
+              </SelectTrigger>
+              <SelectContent>
+                {surgeryTypes.map((type) => (
+                  <SelectItem key={type.id} value={type.id}>
+                    {type.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-        </div>
-      )}
-    </>
+
+          <div className="space-y-2">
+            <Label htmlFor="duration">Estimated Duration (minutes)</Label>
+            <Input
+              id="duration"
+              type="number"
+              value={formData.estimatedDuration}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setFormData({ ...formData, estimatedDuration: Number.parseInt(e.target.value) })
+              }
+              min={30}
+              step={30}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="notes">Additional Notes</Label>
+            <Input
+              id="notes"
+              value={formData.additionalNotes}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setFormData({ ...formData, additionalNotes: e.target.value })
+              }
+            />
+          </div>
+
+          <div className="flex justify-end space-x-2">
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isChecking}>
+              {isChecking ? "Checking availability..." : "Book Surgery"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 
