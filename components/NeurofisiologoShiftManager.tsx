@@ -2,7 +2,7 @@
 
 import React from "react"
 import { useState, useEffect, useCallback } from "react"
-import { addDoc, collection, query, where, getDocs, deleteDoc, doc } from "firebase/firestore"
+import { addDoc, collection, query, where, getDocs, deleteDoc, doc, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { useAuth } from "@/app/context/AuthContext"
 import { Button } from "@/components/ui/button"
@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Calendar } from "@/components/ui/calendar"
 import { Shift } from "@/types"
+import { format } from "date-fns"
 
 export default function NeurofisiologoShiftManager() {
   const { userData } = useAuth()
@@ -18,30 +19,30 @@ export default function NeurofisiologoShiftManager() {
     date: "",
     type: "morning",
     hospitalId: userData?.hospitalId || "",
+    neurophysiologistName: userData?.name || "",
   })
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date())
+  const [error, setError] = useState<string | null>(null)
 
-  const fetchShifts = async () => {
+  const fetchShifts = useCallback(async () => {
     if (!userData?.id) return
 
     const shiftsRef = collection(db, "shifts")
     const q = query(
       shiftsRef,
       where("neurophysiologistId", "==", userData.id),
-      where("date", ">=", new Date().toISOString().split("T")[0]),
+      where("date", ">=", format(new Date(), "yyyy-MM-dd")),
     )
     const querySnapshot = await getDocs(q)
     const fetchedShifts = querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as Shift)
     setShifts(fetchedShifts)
-  }
-
-  const memoizedFetchShifts = useCallback(fetchShifts, [])
+  }, [userData?.id])
 
   useEffect(() => {
     if (userData?.id) {
-      memoizedFetchShifts()
+      fetchShifts()
     }
-  }, [userData?.id, memoizedFetchShifts])
+  }, [userData?.id, fetchShifts])
 
   const addShift = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -49,15 +50,16 @@ export default function NeurofisiologoShiftManager() {
 
     const shift: Omit<Shift, "id"> = {
       ...newShift,
-      date: selectedDate.toISOString().split("T")[0],
+      date: format(selectedDate, "yyyy-MM-dd"),
       neurophysiologistId: userData.id,
+      neurophysiologistName: userData.name || "",
       booked: false,
       createdAt: new Date().toISOString(),
     }
 
     try {
       await addDoc(collection(db, "shifts"), shift)
-      await memoizedFetchShifts()
+      await fetchShifts()
       setNewShift({ ...newShift, type: "morning" })
       setSelectedDate(undefined)
     } catch (error) {
@@ -67,10 +69,19 @@ export default function NeurofisiologoShiftManager() {
 
   const removeShift = async (id: string) => {
     try {
-      await deleteDoc(doc(db, "shifts", id))
-      await memoizedFetchShifts()
+      const shiftRef = doc(db, "shifts", id)
+      const shiftSnap = await getDoc(shiftRef)
+
+      if (shiftSnap.exists() && shiftSnap.data().neurophysiologistId === userData?.id) {
+        await deleteDoc(shiftRef)
+        await fetchShifts()
+      } else {
+        console.error("Cannot delete shift: User does not have permission or shift does not exist")
+        setError("You don't have permission to delete this shift or the shift no longer exists.")
+      }
     } catch (error) {
       console.error("Error removing shift:", error)
+      setError("Failed to remove shift. Please try again.")
     }
   }
 
@@ -100,13 +111,14 @@ export default function NeurofisiologoShiftManager() {
           </div>
           <Button type="submit">Add Shift</Button>
         </form>
+        {error && <p className="text-red-500 mt-2">{error}</p>}
         <div className="mt-6">
           <h3 className="text-lg font-medium">Your Shifts</h3>
           <ul className="mt-2 space-y-2">
             {shifts.map((shift) => (
               <li key={shift.id} className="flex justify-between items-center">
                 <span>
-                  {new Date(shift.date).toLocaleDateString()} - {shift.type}
+                  {format(new Date(shift.date), "PPP")} - {shift.type}
                 </span>
                 <Button variant="destructive" onClick={() => removeShift(shift.id)}>
                   Remove

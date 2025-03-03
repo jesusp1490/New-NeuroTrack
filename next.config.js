@@ -1,16 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  swcMinify: true,
-  transpilePackages: ["firebase", "@firebase/auth"],
-  webpack: (config, { isServer }) => {
-    if (!isServer) {
-      config.resolve.fallback = {
-        ...config.resolve.fallback,
-        fs: false,
-        net: false,
-        tls: false,
-      }
+  webpack: (config, { dev, isServer }) => {
+    if (dev && !isServer) {
+      config.cache = false
     }
     return config
   },

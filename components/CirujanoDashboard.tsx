@@ -6,19 +6,29 @@ import OperatingRoomCalendar from "./OperatingRoomCalendar"
 import { SurgeryBookingDialog } from "./SurgeryBookingDialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
+type SlotInfo = {
+  start: Date
+  end: Date
+  resourceId?: string | number
+}
+
 export default function CirujanoDashboard() {
   const { userData } = useAuth()
   const [isBookingOpen, setIsBookingOpen] = useState(false)
-  const [selectedSlot, setSelectedSlot] = useState<{ start: Date; end: Date } | null>(null)
+  const [selectedSlot, setSelectedSlot] = useState<{ start: Date; end: Date; resourceId?: string } | null>(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
 
-  const handleOpenBooking = (slot: { start: Date; end: Date }) => {
-    setSelectedSlot(slot)
+  const handleOpenBooking = (slotInfo: SlotInfo) => {
+    setSelectedSlot({
+      start: slotInfo.start,
+      end: slotInfo.end,
+      resourceId: typeof slotInfo.resourceId === "string" ? slotInfo.resourceId : undefined,
+    })
     setIsBookingOpen(true)
   }
 
   const handleBookSurgery = () => {
-    setSelectedSlot({ start: new Date(), end: new Date() })
+    setSelectedSlot(null)
     setIsBookingOpen(true)
   }
 
@@ -34,6 +44,10 @@ export default function CirujanoDashboard() {
     setRefreshTrigger((prev) => prev + 1)
   }
 
+  if (!userData?.hospitalId) {
+    return <div>Loading user data...</div>
+  }
+
   return (
     <div className="p-6 space-y-6">
       <Card>
@@ -42,7 +56,7 @@ export default function CirujanoDashboard() {
         </CardHeader>
         <CardContent>
           <p className="text-lg">Welcome, Dr. {userData?.name}</p>
-          <p className="text-sm text-muted-foreground">Hospital ID: {userData?.hospitalId}</p>
+          <p className="text-sm text-muted-foreground">Hospital: {userData?.hospitalId}</p>
         </CardContent>
       </Card>
       <Card>
@@ -51,7 +65,7 @@ export default function CirujanoDashboard() {
         </CardHeader>
         <CardContent>
           <OperatingRoomCalendar
-            hospitalId={userData?.hospitalId}
+            hospitalId={userData.hospitalId}
             onSelectSlot={handleOpenBooking}
             onBookSurgery={handleBookSurgery}
             refreshTrigger={refreshTrigger}

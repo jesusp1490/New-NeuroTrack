@@ -9,7 +9,7 @@ export interface Hospital {
 export interface Room {
   id: string
   name: string
-  // Add other properties as needed
+  hospitalId: string
 }
 
 export interface User {
@@ -56,6 +56,7 @@ export interface Shift {
   date: string
   hospitalId: string
   neurophysiologistId: string
+  neurophysiologistName: string
   type: "morning" | "afternoon"
 }
 
