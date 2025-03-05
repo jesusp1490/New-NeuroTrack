@@ -83,3 +83,4 @@ export const surgeryTypes: SurgeryType[] = [
     ],
   },
 ]
+

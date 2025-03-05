@@ -1,274 +1,380 @@
 "use client"
 
-import React from "react"
+import type React from "react"
+
 import { useState, useEffect, useCallback } from "react"
+import { format } from "date-fns"
+import { collection, query, where, getDocs } from "firebase/firestore"
+import { db } from "@/lib/firebase"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Calendar } from "@/components/ui/calendar"
-import { collection, query, where, getDocs, doc, runTransaction, serverTimestamp, getDoc } from "firebase/firestore"
-import { db } from "@/lib/firebase"
-import { format, addMinutes, parse, isAfter } from "date-fns"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { AlertCircle } from "lucide-react"
-import { surgeryTypes, SurgeryType } from "@/lib/surgeryTypes"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
+import type { Surgery, SurgeryType, User } from "@/types"
+import { bookSurgery, fetchSurgeryTypes } from "@/lib/surgeryService"
+import { surgeryTypes } from "@/lib/surgeryTypes"
+
+export interface SlotInfo {
+  start: Date
+  end: Date
+  resourceId?: string
+  slots?: Date[]
+  action?: string
+}
 
 interface Props {
   isOpen: boolean
   onClose: () => void
-  onComplete: (event: any) => void
-  selectedSlot?: { start: Date; end: Date; resourceId?: string } | null
-  userData: { hospitalId?: string; id?: string; role?: string } | null
+  onComplete: () => void
+  selectedSlot?: SlotInfo
+  userData: User
+  hospitalId: string
+  hospitalName: string
+  surgeryTypes?: SurgeryType[]
 }
 
-interface Neurophysiologist {
-  id: string
-  name: string
-}
+export default function SurgeryBookingDialog({
+  isOpen,
+  onClose,
+  onComplete,
+  selectedSlot,
+  userData,
+  hospitalId,
+  hospitalName,
+  surgeryTypes: propSurgeryTypes,
+}: Props) {
+  const [date, setDate] = useState<Date | undefined>(selectedSlot?.start)
+  const [time, setTime] = useState(selectedSlot ? format(selectedSlot.start, "HH:mm") : "09:00")
+  const [endTime, setEndTime] = useState(
+    selectedSlot ? format(selectedSlot.end || new Date(selectedSlot.start.getTime() + 60 * 60000), "HH:mm") : "10:00",
+  )
+  const [availableNeurophysiologists, setAvailableNeurophysiologists] = useState<User[]>([])
+  const [selectedNeurophysiologist, setSelectedNeurophysiologist] = useState<string>("")
+  const [surgeryType, setSurgeryType] = useState("")
+  const [patientName, setPatientName] = useState("")
+  const [estimatedDuration, setEstimatedDuration] = useState("60")
+  const [notes, setNotes] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [availableSurgeryTypes, setAvailableSurgeryTypes] = useState<SurgeryType[]>(
+    propSurgeryTypes || surgeryTypes || [],
+  )
+  const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null)
 
-export function SurgeryBookingDialog({ isOpen, onClose, onComplete, selectedSlot, userData }: Props) {
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(selectedSlot?.start || new Date())
-  const [formData, setFormData] = useState({
-    surgeryTypeId: "",
-    additionalNotes: "",
-    startTime: selectedSlot ? format(selectedSlot.start, "HH:mm") : "08:00",
-    endTime: selectedSlot ? format(addMinutes(selectedSlot.start, 60), "HH:mm") : "09:00",
-    selectedNeurophysiologists: [] as string[],
-  })
-  const [selectedSurgeryType, setSelectedSurgeryType] = useState<SurgeryType | null>(null)
-  const [isChecking, setIsChecking] = useState(false)
-  const [availableNeurophysiologists, setAvailableNeurophysiologists] = useState<Neurophysiologist[]>([])
-  const [error, setError] = useState<string | null>(null)
-
+  // Update estimated duration when surgery type changes
   useEffect(() => {
-    if (formData.surgeryTypeId) {
-      const surgeryType = surgeryTypes.find((st) => st.id === formData.surgeryTypeId)
-      setSelectedSurgeryType(surgeryType || null)
-      if (surgeryType && selectedDate) {
-        const startTime = parse(formData.startTime, "HH:mm", new Date())
-        setFormData((prev) => ({
-          ...prev,
-          endTime: format(addMinutes(startTime, surgeryType.estimatedDuration), "HH:mm"),
-        }))
+    if (surgeryType) {
+      const selectedType = availableSurgeryTypes.find((type) => type.id === surgeryType)
+      if (selectedType && selectedType.estimatedDuration) {
+        setEstimatedDuration(selectedType.estimatedDuration.toString())
       }
     }
-  }, [formData.surgeryTypeId, formData.startTime, selectedDate])
+  }, [surgeryType, availableSurgeryTypes])
 
-  const fetchAvailableNeurophysiologists = useCallback(async () => {
-    if (!userData?.hospitalId || !selectedDate) return
-
-    try {
-      const shiftsRef = collection(db, "shifts")
-      const shiftDate = format(selectedDate, "yyyy-MM-dd")
-      const startHour = Number.parseInt(formData.startTime.split(":")[0], 10)
-
-      // Determine shift type based on the selected time
-      const shiftType = startHour >= 14 ? "afternoon" : "morning"
-
-      console.log("Fetching shifts with params:", {
-        hospitalId: userData.hospitalId,
-        date: shiftDate,
-        type: shiftType,
-        startHour,
-      })
-
-      // Query shifts for the specific date, hospital, and shift type
-      const q = query(
-        shiftsRef,
-        where("hospitalId", "==", userData.hospitalId),
-        where("date", "==", shiftDate),
-        where("type", "==", shiftType),
-      )
-
-      const querySnapshot = await getDocs(q)
-      console.log(
-        "Found shifts:",
-        querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
-      )
-
-      const neurophysiologists: Neurophysiologist[] = []
-      const processedIds = new Set()
-
-      for (const docSnapshot of querySnapshot.docs) {
-        const shiftData = docSnapshot.data()
-
-        // Skip if the shift is already booked
-        if (shiftData.booked) continue
-
-        // Skip if we already processed this neurophysiologist
-        if (processedIds.has(shiftData.neurophysiologistId)) continue
-
-        const userRef = doc(db, "users", shiftData.neurophysiologistId)
-        const userDoc = await getDoc(userRef)
-
-        if (userDoc.exists()) {
-          const userData = userDoc.data()
-          neurophysiologists.push({
-            id: shiftData.neurophysiologistId,
-            name: userData.name || shiftData.neurophysiologistName || "Unknown",
-          })
-          processedIds.add(shiftData.neurophysiologistId)
-        }
+  // Fetch surgery types if not provided
+  useEffect(() => {
+    const getSurgeryTypes = async () => {
+      if (propSurgeryTypes && propSurgeryTypes.length > 0) {
+        setAvailableSurgeryTypes(propSurgeryTypes)
+        return
       }
 
-      console.log("Available neurophysiologists:", neurophysiologists)
-      setAvailableNeurophysiologists(neurophysiologists)
+      if (surgeryTypes && surgeryTypes.length > 0) {
+        setAvailableSurgeryTypes(surgeryTypes)
+        return
+      }
 
-      // Clear any previously selected neurophysiologists that are no longer available
-      setFormData((prev) => ({
-        ...prev,
-        selectedNeurophysiologists: prev.selectedNeurophysiologists.filter((id) =>
-          neurophysiologists.some((neuro) => neuro.id === id),
-        ),
-      }))
-    } catch (error) {
-      console.error("Error fetching neurophysiologists:", error)
-      setError("Failed to fetch available neurophysiologists. Please try again.")
-      setAvailableNeurophysiologists([])
-    }
-  }, [userData?.hospitalId, selectedDate, formData.startTime])
-
-  useEffect(() => {
-    if (isOpen) {
-      console.log("Dialog opened or time/date changed - fetching neurophysiologists")
-      fetchAvailableNeurophysiologists()
-    }
-  }, [isOpen, fetchAvailableNeurophysiologists]) // Removed unnecessary dependencies: selectedDate, formData.startTime
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!selectedDate || !userData?.id || formData.selectedNeurophysiologists.length === 0 || !selectedSurgeryType) {
-      setError("Missing required information. Please fill in all fields.")
-      return
+      try {
+        const types = await fetchSurgeryTypes()
+        setAvailableSurgeryTypes(types as SurgeryType[])
+      } catch (error) {
+        console.error("Error fetching surgery types:", error)
+      }
     }
 
-    if (userData.role !== "cirujano" && userData.role !== "administrativo") {
-      setError("Only surgeons and administrative staff can book surgeries.")
-      return
-    }
+    getSurgeryTypes()
+  }, [propSurgeryTypes])
 
-    const startDateTime = new Date(selectedDate)
-    const [startHours, startMinutes] = formData.startTime.split(":").map(Number)
-    startDateTime.setHours(startHours, startMinutes, 0, 0)
+  const checkAvailableNeurophysiologists = useCallback(
+    async (selectedDate: Date, selectedTime: string) => {
+      setIsLoading(true)
+      setError("")
+      try {
+        // Convert selected time to hours and minutes
+        const [hours, minutes] = selectedTime.split(":").map(Number)
+        const selectedDateTime = new Date(selectedDate)
+        selectedDateTime.setHours(hours, minutes, 0, 0)
 
-    const endDateTime = new Date(selectedDate)
-    const [endHours, endMinutes] = formData.endTime.split(":").map(Number)
-    endDateTime.setHours(endHours, endMinutes, 0, 0)
+        // Determine if this is a morning or afternoon slot
+        const isMorningSlot = hours >= 8 && hours < 14
+        const shiftType = isMorningSlot ? "morning" : "afternoon"
 
-    if (isAfter(startDateTime, endDateTime)) {
-      setError("End time must be after start time.")
-      return
-    }
-
-    setIsChecking(true)
-    setError(null)
-    try {
-      let newSurgeryRef: any
-
-      await runTransaction(db, async (transaction) => {
-        // Create the surgery document
-        const surgeryData = {
-          surgeryTypeId: formData.surgeryTypeId,
-          surgeryTypeName: selectedSurgeryType.name,
-          date: startDateTime.toISOString(),
-          estimatedDuration: selectedSurgeryType.estimatedDuration,
-          additionalNotes: formData.additionalNotes,
-          createdAt: serverTimestamp(),
-          status: "scheduled",
-          neurophysiologistIds: formData.selectedNeurophysiologists,
-          hospitalId: userData.hospitalId,
-          surgeonId: userData.id,
-          materials: selectedSurgeryType.materials || [],
-        }
-
-        const surgeriesRef = collection(db, "surgeries")
-        newSurgeryRef = doc(surgeriesRef)
-        transaction.set(newSurgeryRef, surgeryData)
-
-        // Update all selected neurophysiologist shifts to mark them as booked
+        // Query shifts for the selected date and hospital
         const shiftsRef = collection(db, "shifts")
-        const shiftDate = format(startDateTime, "yyyy-MM-dd")
-        const shiftType = startHours < 14 ? "morning" : "afternoon"
+        const shiftsQuery = query(
+          shiftsRef,
+          where("hospitalId", "==", hospitalId),
+          where("date", "==", format(selectedDate, "yyyy-MM-dd")),
+          where("type", "==", shiftType),
+          where("booked", "==", false),
+        )
 
-        for (const neurophysiologistId of formData.selectedNeurophysiologists) {
-          const shiftQuery = query(
-            shiftsRef,
-            where("date", "==", shiftDate),
-            where("type", "==", shiftType),
-            where("neurophysiologistId", "==", neurophysiologistId),
-            where("hospitalId", "==", userData.hospitalId),
-          )
+        const shiftsSnapshot = await getDocs(shiftsQuery)
 
-          const shiftSnapshot = await getDocs(shiftQuery)
-          if (!shiftSnapshot.empty) {
-            const shiftDoc = shiftSnapshot.docs[0]
-            transaction.update(doc(db, "shifts", shiftDoc.id), { booked: true })
+        if (shiftsSnapshot.empty) {
+          setAvailableNeurophysiologists([])
+          setSelectedShiftId(null)
+          setError("No hay neurofisiólogos disponibles para esta fecha y hora")
+          return
+        }
+
+        // Get unique neurophysiologist IDs from available shifts
+        const neurophysiologistIds = new Set<string>()
+        const shiftMap = new Map<string, string>() // Map neurophysiologistId to shiftId
+
+        shiftsSnapshot.forEach((doc) => {
+          const shift = doc.data()
+          neurophysiologistIds.add(shift.neurophysiologistId)
+          shiftMap.set(shift.neurophysiologistId, doc.id)
+        })
+
+        // Convert Set to Array before iterating
+        const neurophysiologistIdsArray = Array.from(neurophysiologistIds)
+
+        // Fetch neurophysiologist details
+        const neurophysiologists: User[] = []
+        for (const id of neurophysiologistIdsArray) {
+          const usersRef = collection(db, "users")
+          const usersQuery = query(usersRef, where("role", "==", "neurofisiologo"))
+          const usersSnapshot = await getDocs(usersQuery)
+
+          usersSnapshot.forEach((doc) => {
+            if (doc.id === id) {
+              neurophysiologists.push({ id: doc.id, ...doc.data() } as User)
+            }
+          })
+        }
+
+        if (neurophysiologists.length === 0) {
+          setError("No hay neurofisiólogos disponibles para esta fecha y hora")
+          setSelectedShiftId(null)
+        } else {
+          setError("")
+          // Set the first neurophysiologist as selected by default
+          if (neurophysiologists.length > 0 && !selectedNeurophysiologist) {
+            setSelectedNeurophysiologist(neurophysiologists[0].id)
+            setSelectedShiftId(shiftMap.get(neurophysiologists[0].id) || null)
           }
         }
 
-        return newSurgeryRef.id
-      })
+        setAvailableNeurophysiologists(neurophysiologists)
 
-      onComplete({
-        id: newSurgeryRef.id,
-        title: `Surgery: ${selectedSurgeryType.name}`,
-        start: startDateTime,
-        end: endDateTime,
-        type: "surgery",
-      })
+        // Update selected shift ID when neurophysiologist changes
+        if (selectedNeurophysiologist) {
+          setSelectedShiftId(shiftMap.get(selectedNeurophysiologist) || null)
+        }
+      } catch (error) {
+        console.error("Error checking availability:", error)
+        setError("Error al verificar disponibilidad")
+        setSelectedShiftId(null)
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [hospitalId, selectedNeurophysiologist],
+  )
 
-      onClose()
-    } catch (error) {
-      console.error("Error booking surgery:", error)
-      setError(`Error booking surgery: ${error instanceof Error ? error.message : "Unknown error occurred"}`)
-    } finally {
-      setIsChecking(false)
+  useEffect(() => {
+    if (date) {
+      checkAvailableNeurophysiologists(date, time)
     }
-  }
+  }, [date, time, checkAvailableNeurophysiologists])
 
-  const toggleNeurophysiologist = (id: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      selectedNeurophysiologists: prev.selectedNeurophysiologists.includes(id)
-        ? prev.selectedNeurophysiologists.filter((n) => n !== id)
-        : [...prev.selectedNeurophysiologists, id],
-    }))
+  // Update selected shift ID when neurophysiologist changes
+  useEffect(() => {
+    if (selectedNeurophysiologist && availableNeurophysiologists.length > 0) {
+      // We need to find the shift ID for this neurophysiologist
+      const updateShiftId = async () => {
+        try {
+          if (!date) return
+
+          // Determine if this is a morning or afternoon slot
+          const [hours] = time.split(":").map(Number)
+          const isMorningSlot = hours >= 8 && hours < 14
+          const shiftType = isMorningSlot ? "morning" : "afternoon"
+
+          // Query shifts for the selected date, hospital, and neurophysiologist
+          const shiftsRef = collection(db, "shifts")
+          const shiftsQuery = query(
+            shiftsRef,
+            where("hospitalId", "==", hospitalId),
+            where("date", "==", format(date, "yyyy-MM-dd")),
+            where("type", "==", shiftType),
+            where("neurophysiologistId", "==", selectedNeurophysiologist),
+            where("booked", "==", false),
+          )
+
+          const shiftsSnapshot = await getDocs(shiftsQuery)
+
+          if (!shiftsSnapshot.empty) {
+            setSelectedShiftId(shiftsSnapshot.docs[0].id)
+          } else {
+            setSelectedShiftId(null)
+          }
+        } catch (error) {
+          console.error("Error updating shift ID:", error)
+          setSelectedShiftId(null)
+        }
+      }
+
+      updateShiftId()
+    }
+  }, [selectedNeurophysiologist, date, time, hospitalId, availableNeurophysiologists])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!date || !selectedNeurophysiologist || !surgeryType || !patientName || !endTime) {
+      setError("Por favor complete todos los campos requeridos")
+      return
+    }
+
+    setIsLoading(true)
+    setError("")
+
+    try {
+      // Extract start and end times for the surgery data
+      const [startHours, startMinutes] = time.split(":").map(Number)
+      const [endHours, endMinutes] = endTime.split(":").map(Number)
+      const surgeryDateTime = new Date(date)
+      surgeryDateTime.setHours(startHours, startMinutes, 0, 0)
+
+      // Calculate duration in minutes
+      const startTimeMinutes = startHours * 60 + startMinutes
+      const endTimeMinutes = endHours * 60 + endMinutes
+      const durationMinutes = endTimeMinutes - startTimeMinutes
+
+      // Update estimated duration based on selected end time
+      setEstimatedDuration(durationMinutes.toString())
+
+      // Create the surgery document with the shift ID reference
+      const surgeryData: Partial<Surgery> = {
+        date: surgeryDateTime.toISOString(),
+        neurophysiologistId: selectedNeurophysiologist,
+        surgeryType,
+        patientName,
+        estimatedDuration: Number.parseInt(estimatedDuration),
+        notes,
+        hospitalId,
+        status: "scheduled",
+        surgeonId: userData.id,
+        // Only include roomId if it's defined
+        ...(selectedSlot?.resourceId ? { roomId: selectedSlot.resourceId } : {}),
+        createdAt: new Date().toISOString(),
+      }
+
+      console.log("Surgery data being submitted:", surgeryData)
+
+      // Book the surgery and update the shift
+      await bookSurgery(surgeryData, selectedShiftId)
+
+      // Call onComplete to refresh the calendar
+      onComplete()
+    } catch (error) {
+      console.error("Error submitting surgery:", error)
+      setError("Error al programar la cirugía")
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Book Surgery</DialogTitle>
+          <DialogTitle>Programar Cirugía - {hospitalName}</DialogTitle>
         </DialogHeader>
-        {error && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Error</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label>Select Date</Label>
-            <Calendar mode="single" selected={selectedDate} onSelect={setSelectedDate} className="rounded-md border" />
+            <Label htmlFor="date">Fecha</Label>
+            <Calendar
+              mode="single"
+              selected={date}
+              onSelect={setDate}
+              className="rounded-md border"
+              disabled={(date) => date < new Date()}
+            />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="surgeryType">Surgery Type</Label>
-            <Select
-              value={formData.surgeryTypeId}
-              onValueChange={(value: string) => setFormData({ ...formData, surgeryTypeId: value })}
-              required
-            >
+            <Label htmlFor="time">Hora</Label>
+            <Select value={time} onValueChange={setTime}>
               <SelectTrigger>
-                <SelectValue placeholder="Select surgery type" />
+                <SelectValue placeholder="Seleccionar hora" />
               </SelectTrigger>
               <SelectContent>
-                {surgeryTypes.map((type) => (
+                {Array.from({ length: 24 }, (_, i) => i + 8)
+                  .filter((hour) => hour >= 8 && hour < 20)
+                  .map((hour) => (
+                    <SelectItem key={hour} value={`${hour.toString().padStart(2, "0")}:00`}>
+                      {`${hour.toString().padStart(2, "0")}:00`}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="endTime">Hora de finalización</Label>
+            <Select
+              value={endTime}
+              onValueChange={setEndTime}
+              disabled={!time} // Disable until start time is selected
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Seleccionar hora de finalización" />
+              </SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: 24 }, (_, i) => i + 8)
+                  .filter((hour) => {
+                    const [startHour] = time.split(":").map(Number)
+                    return hour > startHour && hour <= (startHour < 14 ? 14 : 20)
+                  })
+                  .map((hour) => (
+                    <SelectItem key={hour} value={`${hour.toString().padStart(2, "0")}:00`}>
+                      {`${hour.toString().padStart(2, "0")}:00`}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="neurophysiologist">Neurofisiólogo</Label>
+            <Select value={selectedNeurophysiologist} onValueChange={setSelectedNeurophysiologist}>
+              <SelectTrigger>
+                <SelectValue placeholder="Seleccionar neurofisiólogo" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableNeurophysiologists.map((neuro) => (
+                  <SelectItem key={neuro.id} value={neuro.id}>
+                    {neuro.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="surgeryType">Tipo de Cirugía</Label>
+            <Select value={surgeryType} onValueChange={setSurgeryType}>
+              <SelectTrigger>
+                <SelectValue placeholder="Seleccionar tipo de cirugía" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableSurgeryTypes.map((type) => (
                   <SelectItem key={type.id} value={type.id}>
                     {type.name}
                   </SelectItem>
@@ -278,92 +384,45 @@ export function SurgeryBookingDialog({ isOpen, onClose, onComplete, selectedSlot
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="startTime">Start Time</Label>
+            <Label htmlFor="patientName">Nombre del Paciente</Label>
             <Input
-              id="startTime"
-              type="time"
-              value={formData.startTime}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                const newStartTime = e.target.value
-                setFormData((prev) => ({ ...prev, startTime: newStartTime }))
-                // Trigger a re-fetch when the start time changes
-                fetchAvailableNeurophysiologists()
-              }}
-              required
+              id="patientName"
+              value={patientName}
+              onChange={(e) => setPatientName(e.target.value)}
+              placeholder="Nombre del paciente"
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="endTime">End Time</Label>
+            <Label htmlFor="estimatedDuration">Duración Estimada (minutos)</Label>
             <Input
-              id="endTime"
-              type="time"
-              value={formData.endTime}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setFormData({ ...formData, endTime: e.target.value })
-              }
-              required
+              id="estimatedDuration"
+              type="number"
+              min="30"
+              max="480"
+              value={estimatedDuration}
+              onChange={(e) => setEstimatedDuration(e.target.value)}
             />
           </div>
 
           <div className="space-y-2">
-            <Label>Select Neurophysiologists</Label>
-            {availableNeurophysiologists.length === 0 ? (
-              <p className="text-sm text-red-500">No neurophysiologists available for this time slot</p>
-            ) : (
-              <div className="space-y-2">
-                {availableNeurophysiologists.map((neuro) => (
-                  <div key={neuro.id} className="flex items-center space-x-2">
-                    <Checkbox
-                      id={neuro.id}
-                      checked={formData.selectedNeurophysiologists.includes(neuro.id)}
-                      onCheckedChange={() => toggleNeurophysiologist(neuro.id)}
-                    />
-                    <Label htmlFor={neuro.id}>{neuro.name}</Label>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="notes">Additional Notes</Label>
-            <Input
+            <Label htmlFor="notes">Notas</Label>
+            <Textarea
               id="notes"
-              value={formData.additionalNotes}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setFormData({ ...formData, additionalNotes: e.target.value })
-              }
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Notas adicionales"
             />
           </div>
 
-          {selectedSurgeryType && (
-            <div className="space-y-2">
-              <Label>Required Materials</Label>
-              <ul className="list-disc pl-5">
-                {selectedSurgeryType.materials.map((material) => (
-                  <li key={material.id}>
-                    {material.name} - Quantity: {material.quantity}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          {error && <p className="text-red-500 text-sm">{error}</p>}
 
-          <div className="flex justify-end space-x-2">
+          <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
+              Cancelar
             </Button>
-            <Button
-              type="submit"
-              disabled={
-                isChecking ||
-                availableNeurophysiologists.length === 0 ||
-                !formData.surgeryTypeId ||
-                formData.selectedNeurophysiologists.length === 0
-              }
-            >
-              {isChecking ? "Checking availability..." : "Book Surgery"}
+            <Button type="submit" disabled={isLoading || availableNeurophysiologists.length === 0}>
+              {isLoading ? "Verificando..." : "Programar Cirugía"}
             </Button>
           </div>
         </form>

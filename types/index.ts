@@ -1,9 +1,20 @@
-export type UserRole = "cirujano" | "neurofisiologo" | "administrativo" | "jefe_departamento"
+// Actualizar el tipo User para incluir múltiples hospitales
+export interface User {
+  id: string
+  email: string
+  name: string
+  role: "cirujano" | "neurofisiologo" | "administrativo" | "jefe_departamento"
+  hospitalId: string // Hospital principal (para cirujanos)
+  hospitals: string[] // Lista de IDs de hospitales donde trabaja (para neurofisiólogos)
+  gender: string
+  profilePictureUrl?: string
+  createdAt: string
+  updatedAt: string
+}
 
 export interface Hospital {
   id: string
   name: string
-  picture: string
 }
 
 export interface Room {
@@ -12,53 +23,50 @@ export interface Room {
   hospitalId: string
 }
 
-export interface User {
+export interface Shift {
   id: string
-  email: string
-  name: string
-  role: "cirujano" | "neurofisiologo" | "administrativo" | "jefe_departamento"
+  neurophysiologistId: string
   hospitalId: string
-  gender: string
-  profilePictureUrl?: string
+  roomId?: string // Add this property
+  date: string
+  type: "morning" | "afternoon"
+  booked: boolean
   createdAt: string
   updatedAt: string
 }
 
-export interface Booking {
-  id: string
-  additionalNotes: string
-  createdAt: string
-  date: string
-  estimatedDuration: number
-  neurophysiologistIds: string[]
-  roomId: string
-  surgeonId: string
-  surgeryType: string
-  status: "scheduled" | "completed" | "cancelled"
-}
-
 export interface Surgery {
   id: string
-  additionalNotes: string
-  bookingId: string
-  createdAt: string
+  surgeonId: string
+  neurophysiologistId: string
+  hospitalId: string
+  roomId?: string
+  patientName: string
+  surgeryType: string
   date: string
   estimatedDuration: number
-  neurophysiologistIds: string[]
-  roomId: string
   status: "scheduled" | "completed" | "cancelled"
-  surgeonId: string
-  surgeryType: string
+  materials?: Array<{
+    id: string
+    name: string
+    quantity: number
+    ref?: string
+  }>
+  notes?: string
+  createdAt: string
+  updatedAt: string
+  shiftId?: string // Add this field
 }
 
-export interface Shift {
+export interface SurgeryType {
   id: string
-  booked: boolean
-  createdAt: string
-  date: string
-  hospitalId: string
-  neurophysiologistId: string
-  neurophysiologistName: string
-  type: "morning" | "afternoon"
+  name: string
+  estimatedDuration: number
+}
+
+export interface SurgeryMaterial {
+  id: string
+  name: string
+  ref?: string
 }
 

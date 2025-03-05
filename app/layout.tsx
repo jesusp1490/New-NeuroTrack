@@ -1,15 +1,14 @@
 import type React from "react"
-import "./globals.css"
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
+import "./globals.css"
 import { AuthContextProvider } from "./context/AuthContext"
-import { ThemeProvider } from "@/components/theme-provider"
 
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
   title: "NeuroTrack",
-  description: "Sistema de Programación de Quirófanos",
+  description: "Manage neurosurgery scheduling and tracking",
 }
 
 export default function RootLayout({
@@ -18,11 +17,9 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="es" suppressHydrationWarning>
+    <html lang="en">
       <body className={inter.className}>
-        <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
-          <AuthContextProvider>{children}</AuthContextProvider>
-        </ThemeProvider>
+        <AuthContextProvider>{children}</AuthContextProvider>
       </body>
     </html>
   )

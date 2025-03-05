@@ -1,13 +1,21 @@
 "use client"
 
 import React from "react"
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { useAuth } from "@/app/context/AuthContext"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle } from "lucide-react"
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage"
+import { collection, getDocs } from "firebase/firestore"
+import { db } from "@/lib/firebase"
+import { Checkbox } from "@/components/ui/checkbox"
+
+interface Hospital {
+  id: string
+  name: string
+}
 
 export default function Signup() {
   const [email, setEmail] = useState("")
@@ -15,6 +23,8 @@ export default function Signup() {
   const [name, setName] = useState("")
   const [role, setRole] = useState<"cirujano" | "neurofisiologo" | "administrativo" | "jefe_departamento">("cirujano")
   const [hospital, setHospital] = useState("")
+  const [hospitals, setHospitals] = useState<Hospital[]>([])
+  const [selectedHospitals, setSelectedHospitals] = useState<string[]>([])
   const [gender, setGender] = useState<"male" | "female">("male")
   const [error, setError] = useState("")
   const [profilePicture, setProfilePicture] = useState<File | null>(null)
@@ -26,11 +36,38 @@ export default function Signup() {
   const router = useRouter()
   const storage = getStorage()
 
+  useEffect(() => {
+    // Cargar la lista de hospitales
+    const fetchHospitals = async () => {
+      try {
+        const hospitalsRef = collection(db, "hospitals")
+        const snapshot = await getDocs(hospitalsRef)
+        const hospitalsList = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          name: doc.data().name,
+        }))
+        setHospitals(hospitalsList)
+      } catch (error) {
+        console.error("Error al cargar hospitales:", error)
+      }
+    }
+
+    fetchHospitals()
+  }, [])
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0]
       setProfilePicture(file)
       setPreviewUrl(URL.createObjectURL(file))
+    }
+  }
+
+  const handleHospitalChange = (hospitalId: string, isChecked: boolean) => {
+    if (isChecked) {
+      setSelectedHospitals([...selectedHospitals, hospitalId])
+    } else {
+      setSelectedHospitals(selectedHospitals.filter((id) => id !== hospitalId))
     }
   }
 
@@ -42,28 +79,33 @@ export default function Signup() {
     try {
       let profilePictureUrl = ""
 
-      // Only attempt to upload if a profile picture was selected
+      // Solo intentar subir si se seleccionó una foto de perfil
       if (profilePicture) {
         try {
-          // Create a storage reference
+          // Crear una referencia de almacenamiento
           const storageRef = ref(storage, `profile-pictures/${Date.now()}-${profilePicture.name}`)
 
-          // Upload the file
+          // Subir el archivo
           await uploadBytes(storageRef, profilePicture)
 
-          // Get the download URL
+          // Obtener la URL de descarga
           profilePictureUrl = await getDownloadURL(storageRef)
         } catch (uploadError) {
-          console.error("Profile picture upload failed:", uploadError)
-          // Continue with signup even if upload fails
+          console.error("Error al subir la foto de perfil:", uploadError)
+          // Continuar con el registro incluso si falla la carga
         }
       }
 
-      // Create user with or without profile picture
-      await signup(email, password, name, role, gender, profilePictureUrl, role === "cirujano" ? hospital : undefined)
+      // Crear usuario con o sin foto de perfil
+      if (role === "neurofisiologo") {
+        await signup(email, password, name, role, gender, profilePictureUrl, "", selectedHospitals)
+      } else {
+        await signup(email, password, name, role, gender, profilePictureUrl, hospital)
+      }
+
       router.push("/dashboard")
     } catch (error) {
-      setError("Failed to create an account. " + (error instanceof Error ? error.message : "Unknown error"))
+      setError("Error al crear la cuenta. " + (error instanceof Error ? error.message : "Error desconocido"))
       console.error(error)
     } finally {
       setIsUploading(false)
@@ -74,7 +116,7 @@ export default function Signup() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">Sign up for an account</h2>
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">Registrar una cuenta</h2>
         </div>
         {error && (
           <Alert variant="destructive">
@@ -88,7 +130,7 @@ export default function Signup() {
           <div className="rounded-md shadow-sm -space-y-px">
             <div>
               <label htmlFor="email-address" className="sr-only">
-                Email address
+                Correo electrónico
               </label>
               <input
                 id="email-address"
@@ -97,14 +139,14 @@ export default function Signup() {
                 autoComplete="email"
                 required
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                placeholder="Email address"
+                placeholder="Correo electrónico"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
             </div>
             <div>
               <label htmlFor="name" className="sr-only">
-                Full Name
+                Nombre completo
               </label>
               <input
                 id="name"
@@ -113,14 +155,14 @@ export default function Signup() {
                 autoComplete="name"
                 required
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                placeholder="Full Name"
+                placeholder="Nombre completo"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
             <div>
               <label htmlFor="password" className="sr-only">
-                Password
+                Contraseña
               </label>
               <input
                 id="password"
@@ -129,14 +171,14 @@ export default function Signup() {
                 autoComplete="current-password"
                 required
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                placeholder="Password"
+                placeholder="Contraseña"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
             <div>
               <label htmlFor="role" className="sr-only">
-                Role
+                Rol
               </label>
               <select
                 id="role"
@@ -159,21 +201,45 @@ export default function Signup() {
                 <label htmlFor="hospital" className="sr-only">
                   Hospital
                 </label>
-                <input
+                <select
                   id="hospital"
                   name="hospital"
-                  type="text"
                   required
                   className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                  placeholder="Hospital"
                   value={hospital}
                   onChange={(e) => setHospital(e.target.value)}
-                />
+                >
+                  <option value="">Seleccionar hospital</option>
+                  {hospitals.map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {role === "neurofisiologo" && (
+              <div className="p-4 border border-gray-300">
+                <p className="text-sm font-medium mb-2">Seleccione los hospitales donde trabaja:</p>
+                <div className="space-y-2">
+                  {hospitals.map((h) => (
+                    <div key={h.id} className="flex items-center">
+                      <Checkbox
+                        id={`hospital-${h.id}`}
+                        checked={selectedHospitals.includes(h.id)}
+                        onCheckedChange={(checked) => handleHospitalChange(h.id, checked === true)}
+                      />
+                      <label htmlFor={`hospital-${h.id}`} className="ml-2 text-sm">
+                        {h.name}
+                      </label>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             <div>
               <label htmlFor="gender" className="sr-only">
-                Gender
+                Género
               </label>
               <select
                 id="gender"
@@ -183,21 +249,21 @@ export default function Signup() {
                 value={gender}
                 onChange={(e) => setGender(e.target.value as "male" | "female")}
               >
-                <option value="male">Male</option>
-                <option value="female">Female</option>
+                <option value="male">Masculino</option>
+                <option value="female">Femenino</option>
               </select>
             </div>
           </div>
 
           <div>
             <label htmlFor="profile-picture" className="block text-sm font-medium text-gray-700">
-              Profile Picture (Optional)
+              Foto de perfil (Opcional)
             </label>
             <div className="mt-1 flex items-center">
               {previewUrl ? (
                 <Image
                   src={previewUrl || "/placeholder.svg"}
-                  alt="Profile preview"
+                  alt="Vista previa del perfil"
                   width={100}
                   height={100}
                   className="rounded-full"
@@ -214,13 +280,13 @@ export default function Signup() {
                 className="ml-5 bg-white py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm leading-4 font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                 onClick={() => fileInputRef.current?.click()}
               >
-                Change
+                Cambiar
               </button>
             </div>
             <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
             <p className="mt-1 text-xs text-gray-500">
-              Note: Profile picture upload is optional. If you encounter any issues, you can continue without one and
-              add it later.
+              Nota: La carga de la foto de perfil es opcional. Si encuentra algún problema, puede continuar sin ella y
+              añadirla más tarde.
             </p>
           </div>
 
@@ -230,7 +296,7 @@ export default function Signup() {
               disabled={isUploading}
               className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
             >
-              {isUploading ? "Creating account..." : "Sign up"}
+              {isUploading ? "Creando cuenta..." : "Registrarse"}
             </button>
           </div>
         </form>
