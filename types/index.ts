@@ -38,7 +38,7 @@ export interface Shift {
 export interface Surgery {
   id: string
   surgeonId: string
-  neurophysiologistId: string
+  neurophysiologistIds: string[] // Changed from single ID to array of IDs
   hospitalId: string
   roomId?: string
   patientName: string

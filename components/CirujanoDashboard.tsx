@@ -26,12 +26,13 @@ interface SurgeryData {
   date: string
   surgeryType: string
   patientName: string
-  neurophysiologistName?: string
+  neurophysiologistNames?: string[]
   status: string
   estimatedDuration: number
   hospitalId: string
   surgeonId: string
-  neurophysiologistId?: string
+  neurophysiologistIds?: string[]
+  neurophysiologistId?: string // Added to handle single neurophysiologist case
 }
 
 export default function CirujanoDashboard({ hospitalId, hospitalName }: CirujanoDashboardProps) {
@@ -66,26 +67,32 @@ export default function CirujanoDashboard({ hospitalId, hospitalName }: Cirujano
         const surgeries = (await Promise.all(
           querySnapshot.docs.map(async (docSnapshot) => {
             const surgeryData = docSnapshot.data()
-            let neurophysiologistName = "No asignado"
+            const neurophysiologistNames: string[] = []
 
-            // Fetch neurophysiologist name
-            if (surgeryData.neurophysiologistId) {
-              try {
-                const userDocRef = doc(db, "users", surgeryData.neurophysiologistId)
-                const userDocSnapshot = await getDoc(userDocRef)
-                if (userDocSnapshot.exists()) {
-                  const userData = userDocSnapshot.data()
-                  neurophysiologistName = userData.name || "No asignado"
+            // Handle both single neurophysiologist and multiple neurophysiologists cases
+            const neuroIds =
+              surgeryData.neurophysiologistIds ||
+              (surgeryData.neurophysiologistId ? [surgeryData.neurophysiologistId] : [])
+
+            if (neuroIds.length > 0) {
+              for (const neuroId of neuroIds) {
+                try {
+                  const userDocRef = doc(db, "users", neuroId)
+                  const userDocSnapshot = await getDoc(userDocRef)
+                  if (userDocSnapshot.exists()) {
+                    const userData = userDocSnapshot.data()
+                    neurophysiologistNames.push(userData.name || "No asignado")
+                  }
+                } catch (error) {
+                  console.error("Error fetching neurophysiologist:", error)
                 }
-              } catch (error) {
-                console.error("Error fetching neurophysiologist:", error)
               }
             }
 
             return {
               id: docSnapshot.id,
               ...surgeryData,
-              neurophysiologistName,
+              neurophysiologistNames,
             }
           }),
         )) as SurgeryData[]
@@ -188,9 +195,24 @@ export default function CirujanoDashboard({ hospitalId, hospitalName }: Cirujano
                         <div>
                           <h4 className="font-medium">{surgery.surgeryType}</h4>
                           <p className="text-sm text-gray-500">Paciente: {surgery.patientName}</p>
-                          <p className="text-sm text-gray-500">
-                            Neurofisiólogo: {surgery.neurophysiologistName || "No especificado"}
-                          </p>
+                          {surgery.neurophysiologistNames && surgery.neurophysiologistNames.length > 0 ? (
+                            <div>
+                              <p className="text-sm text-gray-500 font-medium">
+                                {surgery.neurophysiologistNames.length === 1 ? "Neurofisiólogo:" : "Neurofisiólogos:"}
+                              </p>
+                              {surgery.neurophysiologistNames.length === 1 ? (
+                                <p className="text-sm text-gray-500">{surgery.neurophysiologistNames[0]}</p>
+                              ) : (
+                                <ul className="text-sm text-gray-500 list-disc pl-5">
+                                  {surgery.neurophysiologistNames.map((name, index) => (
+                                    <li key={index}>{name}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-gray-500">Neurofisiólogo: No especificado</p>
+                          )}
                           <div className="flex items-center mt-2 text-sm text-gray-500">
                             <CalendarIcon className="h-4 w-4 mr-1" />
                             {format(new Date(surgery.date), "d 'de' MMMM 'de' yyyy", {

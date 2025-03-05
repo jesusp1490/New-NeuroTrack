@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import type { SlotInfo } from "./SurgeryBookingDialog"
+import { SlotInfo } from "./SurgeryBookingDialog"
 import { jsPDF } from "jspdf"
 import { useRouter } from "next/navigation"
 
@@ -84,16 +84,18 @@ export default function NeurofisiologoDashboard({ hospitalId, hospitalName }: Ne
       try {
         const now = new Date()
         const surgeriesRef = collection(db, "surgeries")
+        // First, try to find surgeries with the new array-based structure
         const q = query(
           surgeriesRef,
-          where("neurophysiologistId", "==", userData.id),
+          where("neurophysiologistIds", "array-contains", userData.id),
           where("hospitalId", "==", hospitalId),
           where("date", ">=", now.toISOString()),
           where("status", "==", "scheduled"),
         )
 
+        // Get surgeries with the new structure
         const querySnapshot = await getDocs(q)
-        const surgeries = (await Promise.all(
+        const surgeries = await Promise.all(
           querySnapshot.docs.map(async (docSnapshot) => {
             const surgeryData = docSnapshot.data()
 
@@ -125,25 +127,85 @@ export default function NeurofisiologoDashboard({ hospitalId, hospitalName }: Ne
 
             return {
               id: docSnapshot.id,
-              ...surgeryData,
+              date: surgeryData.date,
+              surgeryType: surgeryData.surgeryType,
+              patientName: surgeryData.patientName,
+              estimatedDuration: surgeryData.estimatedDuration,
+              status: surgeryData.status,
+              surgeonId: surgeryData.surgeonId,
               surgeonName,
+              materials: surgeryData.materials,
+              notes: surgeryData.notes,
+              roomId: surgeryData.roomId,
               roomName,
             }
           }),
-        )) as Array<{
-          id: string
-          date: string
-          surgeryType: string
-          patientName: string
-          estimatedDuration: number
-          status: string
-          surgeonId?: string
-          surgeonName?: string
-          materials?: Array<{ id: string; name: string; quantity: number; ref?: string }>
-          notes?: string
-          roomId?: string
-          roomName?: string
-        }>
+        )
+
+        // Also check for surgeries with the old structure (single neurophysiologistId)
+        const qOld = query(
+          surgeriesRef,
+          where("neurophysiologistId", "==", userData.id),
+          where("hospitalId", "==", hospitalId),
+          where("date", ">=", now.toISOString()),
+          where("status", "==", "scheduled"),
+        )
+
+        const oldQuerySnapshot = await getDocs(qOld)
+        const oldSurgeries = await Promise.all(
+          oldQuerySnapshot.docs.map(async (docSnapshot) => {
+            const surgeryData = docSnapshot.data()
+
+            // Get surgeon name if surgeonId exists
+            let surgeonName = "Desconocido"
+            if (surgeryData.surgeonId) {
+              try {
+                const surgeonDoc = await getDoc(doc(db, "users", surgeryData.surgeonId))
+                if (surgeonDoc.exists()) {
+                  surgeonName = surgeonDoc.data().name
+                }
+              } catch (error) {
+                console.error("Error fetching surgeon data:", error)
+              }
+            }
+
+            // Get room name if roomId exists
+            let roomName = "Sala no especificada"
+            if (surgeryData.roomId) {
+              try {
+                const roomDoc = await getDoc(doc(db, "rooms", surgeryData.roomId))
+                if (roomDoc.exists()) {
+                  roomName = roomDoc.data().name
+                }
+              } catch (error) {
+                console.error("Error fetching room data:", error)
+              }
+            }
+
+            return {
+              id: docSnapshot.id,
+              date: surgeryData.date,
+              surgeryType: surgeryData.surgeryType,
+              patientName: surgeryData.patientName,
+              estimatedDuration: surgeryData.estimatedDuration,
+              status: surgeryData.status,
+              surgeonId: surgeryData.surgeonId,
+              surgeonName,
+              materials: surgeryData.materials,
+              notes: surgeryData.notes,
+              roomId: surgeryData.roomId,
+              roomName,
+            }
+          }),
+        )
+
+        // Combine both result sets, avoiding duplicates
+        const surgeryIds = new Set(surgeries.map((s) => s.id))
+        for (const surgery of oldSurgeries) {
+          if (!surgeryIds.has(surgery.id)) {
+            surgeries.push(surgery)
+          }
+        }
 
         // Ordenar por fecha
         surgeries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())

@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
 import type { Surgery, SurgeryType, User } from "@/types"
 import { bookSurgery, fetchSurgeryTypes } from "@/lib/surgeryService"
 import { surgeryTypes } from "@/lib/surgeryTypes"
@@ -23,6 +24,7 @@ export interface SlotInfo {
   resourceId?: string
   slots?: Date[]
   action?: string
+  shiftIds?: string[] // Added to support multiple shifts
 }
 
 interface Props {
@@ -52,7 +54,7 @@ export default function SurgeryBookingDialog({
     selectedSlot ? format(selectedSlot.end || new Date(selectedSlot.start.getTime() + 60 * 60000), "HH:mm") : "10:00",
   )
   const [availableNeurophysiologists, setAvailableNeurophysiologists] = useState<User[]>([])
-  const [selectedNeurophysiologist, setSelectedNeurophysiologist] = useState<string>("")
+  const [selectedNeurophysiologists, setSelectedNeurophysiologists] = useState<string[]>([])
   const [surgeryType, setSurgeryType] = useState("")
   const [patientName, setPatientName] = useState("")
   const [estimatedDuration, setEstimatedDuration] = useState("60")
@@ -62,7 +64,7 @@ export default function SurgeryBookingDialog({
   const [availableSurgeryTypes, setAvailableSurgeryTypes] = useState<SurgeryType[]>(
     propSurgeryTypes || surgeryTypes || [],
   )
-  const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null)
+  const [selectedShiftIds, setSelectedShiftIds] = useState<string[]>([])
 
   // Update estimated duration when surgery type changes
   useEffect(() => {
@@ -126,7 +128,7 @@ export default function SurgeryBookingDialog({
 
         if (shiftsSnapshot.empty) {
           setAvailableNeurophysiologists([])
-          setSelectedShiftId(null)
+          setSelectedShiftIds([])
           setError("No hay neurofisiólogos disponibles para esta fecha y hora")
           return
         }
@@ -160,31 +162,24 @@ export default function SurgeryBookingDialog({
 
         if (neurophysiologists.length === 0) {
           setError("No hay neurofisiólogos disponibles para esta fecha y hora")
-          setSelectedShiftId(null)
+          setSelectedShiftIds([])
         } else {
           setError("")
-          // Set the first neurophysiologist as selected by default
-          if (neurophysiologists.length > 0 && !selectedNeurophysiologist) {
-            setSelectedNeurophysiologist(neurophysiologists[0].id)
-            setSelectedShiftId(shiftMap.get(neurophysiologists[0].id) || null)
-          }
+          // Clear previous selections when date/time changes
+          setSelectedNeurophysiologists([])
+          setSelectedShiftIds([])
         }
 
         setAvailableNeurophysiologists(neurophysiologists)
-
-        // Update selected shift ID when neurophysiologist changes
-        if (selectedNeurophysiologist) {
-          setSelectedShiftId(shiftMap.get(selectedNeurophysiologist) || null)
-        }
       } catch (error) {
         console.error("Error checking availability:", error)
         setError("Error al verificar disponibilidad")
-        setSelectedShiftId(null)
+        setSelectedShiftIds([])
       } finally {
         setIsLoading(false)
       }
     },
-    [hospitalId, selectedNeurophysiologist],
+    [hospitalId],
   )
 
   useEffect(() => {
@@ -193,11 +188,11 @@ export default function SurgeryBookingDialog({
     }
   }, [date, time, checkAvailableNeurophysiologists])
 
-  // Update selected shift ID when neurophysiologist changes
+  // Update selected shift IDs when neurophysiologists selection changes
   useEffect(() => {
-    if (selectedNeurophysiologist && availableNeurophysiologists.length > 0) {
-      // We need to find the shift ID for this neurophysiologist
-      const updateShiftId = async () => {
+    if (availableNeurophysiologists.length > 0) {
+      // We need to find the shift IDs for selected neurophysiologists
+      const updateShiftIds = async () => {
         try {
           if (!date) return
 
@@ -206,37 +201,49 @@ export default function SurgeryBookingDialog({
           const isMorningSlot = hours >= 8 && hours < 14
           const shiftType = isMorningSlot ? "morning" : "afternoon"
 
-          // Query shifts for the selected date, hospital, and neurophysiologist
-          const shiftsRef = collection(db, "shifts")
-          const shiftsQuery = query(
-            shiftsRef,
-            where("hospitalId", "==", hospitalId),
-            where("date", "==", format(date, "yyyy-MM-dd")),
-            where("type", "==", shiftType),
-            where("neurophysiologistId", "==", selectedNeurophysiologist),
-            where("booked", "==", false),
-          )
+          const newShiftIds: string[] = []
 
-          const shiftsSnapshot = await getDocs(shiftsQuery)
+          for (const neuroId of selectedNeurophysiologists) {
+            // Query shifts for the selected date, hospital, and neurophysiologist
+            const shiftsRef = collection(db, "shifts")
+            const shiftsQuery = query(
+              shiftsRef,
+              where("hospitalId", "==", hospitalId),
+              where("date", "==", format(date, "yyyy-MM-dd")),
+              where("type", "==", shiftType),
+              where("neurophysiologistId", "==", neuroId),
+              where("booked", "==", false),
+            )
 
-          if (!shiftsSnapshot.empty) {
-            setSelectedShiftId(shiftsSnapshot.docs[0].id)
-          } else {
-            setSelectedShiftId(null)
+            const shiftsSnapshot = await getDocs(shiftsQuery)
+
+            if (!shiftsSnapshot.empty) {
+              newShiftIds.push(shiftsSnapshot.docs[0].id)
+            }
           }
+
+          setSelectedShiftIds(newShiftIds)
         } catch (error) {
-          console.error("Error updating shift ID:", error)
-          setSelectedShiftId(null)
+          console.error("Error updating shift IDs:", error)
+          setSelectedShiftIds([])
         }
       }
 
-      updateShiftId()
+      updateShiftIds()
     }
-  }, [selectedNeurophysiologist, date, time, hospitalId, availableNeurophysiologists])
+  }, [selectedNeurophysiologists, date, time, hospitalId, availableNeurophysiologists])
+
+  const handleNeurophysiologistChange = (neuroId: string, isChecked: boolean) => {
+    if (isChecked) {
+      setSelectedNeurophysiologists((prev) => [...prev, neuroId])
+    } else {
+      setSelectedNeurophysiologists((prev) => prev.filter((id) => id !== neuroId))
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!date || !selectedNeurophysiologist || !surgeryType || !patientName || !endTime) {
+    if (!date || selectedNeurophysiologists.length === 0 || !surgeryType || !patientName || !endTime) {
       setError("Por favor complete todos los campos requeridos")
       return
     }
@@ -262,7 +269,7 @@ export default function SurgeryBookingDialog({
       // Create the surgery document with the shift ID reference
       const surgeryData: Partial<Surgery> = {
         date: surgeryDateTime.toISOString(),
-        neurophysiologistId: selectedNeurophysiologist,
+        neurophysiologistIds: selectedNeurophysiologists, // Now using array of IDs
         surgeryType,
         patientName,
         estimatedDuration: Number.parseInt(estimatedDuration),
@@ -277,8 +284,8 @@ export default function SurgeryBookingDialog({
 
       console.log("Surgery data being submitted:", surgeryData)
 
-      // Book the surgery and update the shift
-      await bookSurgery(surgeryData, selectedShiftId)
+      // Book the surgery and update the shifts
+      await bookSurgery(surgeryData, selectedShiftIds)
 
       // Call onComplete to refresh the calendar
       onComplete()
@@ -292,7 +299,7 @@ export default function SurgeryBookingDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>Programar Cirugía - {hospitalName}</DialogTitle>
         </DialogHeader>
@@ -352,19 +359,27 @@ export default function SurgeryBookingDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="neurophysiologist">Neurofisiólogo</Label>
-            <Select value={selectedNeurophysiologist} onValueChange={setSelectedNeurophysiologist}>
-              <SelectTrigger>
-                <SelectValue placeholder="Seleccionar neurofisiólogo" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableNeurophysiologists.map((neuro) => (
-                  <SelectItem key={neuro.id} value={neuro.id}>
-                    {neuro.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label>Neurofisiólogos Disponibles</Label>
+            <div className="border rounded-md p-3 max-h-40 overflow-y-auto">
+              {availableNeurophysiologists.length === 0 ? (
+                <p className="text-sm text-gray-500">No hay neurofisiólogos disponibles para esta fecha y hora</p>
+              ) : (
+                <div className="space-y-2">
+                  {availableNeurophysiologists.map((neuro) => (
+                    <div key={neuro.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`neuro-${neuro.id}`}
+                        checked={selectedNeurophysiologists.includes(neuro.id)}
+                        onCheckedChange={(checked) => handleNeurophysiologistChange(neuro.id, checked === true)}
+                      />
+                      <Label htmlFor={`neuro-${neuro.id}`} className="text-sm cursor-pointer">
+                        {neuro.name}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -421,7 +436,12 @@ export default function SurgeryBookingDialog({
             <Button type="button" variant="outline" onClick={onClose}>
               Cancelar
             </Button>
-            <Button type="submit" disabled={isLoading || availableNeurophysiologists.length === 0}>
+            <Button
+              type="submit"
+              disabled={
+                isLoading || availableNeurophysiologists.length === 0 || selectedNeurophysiologists.length === 0
+              }
+            >
               {isLoading ? "Verificando..." : "Programar Cirugía"}
             </Button>
           </div>

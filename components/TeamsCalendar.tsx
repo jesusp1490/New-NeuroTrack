@@ -17,6 +17,7 @@ interface CalendarEvent {
   color?: string
   neurophysiologistId?: string
   neurophysiologistName?: string
+  neurophysiologists?: Array<{ id: string; name: string }> // Added for multiple neurophysiologists
   surgeryType?: string
   patientName?: string
   booked?: boolean
@@ -219,9 +220,16 @@ export const TeamsCalendar = ({ events, onEventClick, onSlotClick, onNewMeeting,
                                       : "Turno Disponible"
                                     : event.title}
                                 </div>
-                                {event.neurophysiologistName && (
+                                {/* Display multiple neurophysiologists if available */}
+                                {event.neurophysiologists && event.neurophysiologists.length > 0 ? (
+                                  <div className="text-xs opacity-75 truncate">
+                                    {event.neurophysiologists.length > 1
+                                      ? `${event.neurophysiologists.length} neurofisiólogos disponibles`
+                                      : event.neurophysiologists[0].name}
+                                  </div>
+                                ) : event.neurophysiologistName ? (
                                   <div className="text-xs opacity-75 truncate">{event.neurophysiologistName}</div>
-                                )}
+                                ) : null}
                               </div>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -236,9 +244,19 @@ export const TeamsCalendar = ({ events, onEventClick, onSlotClick, onNewMeeting,
                                 <p className="text-sm">
                                   {format(event.start, "HH:mm")} - {format(event.end, "HH:mm")}
                                 </p>
-                                {event.neurophysiologistName && (
+                                {/* Display multiple neurophysiologists in tooltip */}
+                                {event.neurophysiologists && event.neurophysiologists.length > 0 ? (
+                                  <div className="mt-1">
+                                    <p className="text-sm font-medium">Neurofisiólogos disponibles:</p>
+                                    <ul className="text-sm list-disc pl-4">
+                                      {event.neurophysiologists.map((neuro) => (
+                                        <li key={neuro.id}>{neuro.name}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ) : event.neurophysiologistName ? (
                                   <p className="text-sm">Neurofisiólogo: {event.neurophysiologistName}</p>
-                                )}
+                                ) : null}
                                 {event.type === "shift" && (
                                   <p className="text-sm">
                                     {event.booked ? "Este turno ya está reservado" : "Disponible para reservar cirugía"}

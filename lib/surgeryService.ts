@@ -3,8 +3,8 @@ import { db } from "@/lib/firebase"
 import type { Surgery } from "@/types"
 import { surgeryTypes } from "@/lib/surgeryTypes"
 
-// This function will handle both creating the surgery and updating the shift
-export async function bookSurgery(surgeryData: Partial<Surgery>, shiftId: string | null) {
+// This function will handle both creating the surgery and updating the shifts
+export async function bookSurgery(surgeryData: Partial<Surgery>, shiftIds: string[] | null) {
   try {
     // Remove any undefined fields from surgeryData
     const cleanedData = Object.fromEntries(Object.entries(surgeryData).filter(([_, value]) => value !== undefined))
@@ -30,14 +30,16 @@ export async function bookSurgery(surgeryData: Partial<Surgery>, shiftId: string
       createdAt: new Date().toISOString(),
     })
 
-    // Step 2: If we have a shiftId, fetch the shift to check if it's available
-    if (shiftId) {
-      const shiftRef = doc(db, "shifts", shiftId)
-      const shiftSnap = await getDoc(shiftRef)
+    // Step 2: If we have shiftIds, update each shift to mark it as booked
+    if (shiftIds && shiftIds.length > 0) {
+      for (const shiftId of shiftIds) {
+        const shiftRef = doc(db, "shifts", shiftId)
+        const shiftSnap = await getDoc(shiftRef)
 
-      if (shiftSnap.exists() && !shiftSnap.data().booked) {
-        // Update the shift to mark it as booked
-        await updateDoc(shiftRef, { booked: true })
+        if (shiftSnap.exists() && !shiftSnap.data().booked) {
+          // Update the shift to mark it as booked
+          await updateDoc(shiftRef, { booked: true })
+        }
       }
     }
 

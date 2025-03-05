@@ -9,10 +9,11 @@ import {
   createUserWithEmailAndPassword,
   setPersistence,
   browserLocalPersistence,
+  onAuthStateChanged,
 } from "firebase/auth"
 import { doc, getDoc, setDoc } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
-import type { User } from "@/types"
+import { User } from "@/types"
 
 type AuthContextType = {
   user: FirebaseUser | null
@@ -49,44 +50,79 @@ export function AuthContextProvider({ children }: { children: React.ReactNode })
   const [user, setUser] = useState<FirebaseUser | null>(null)
   const [userData, setUserData] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [authInitialized, setAuthInitialized] = useState(false)
 
+  // Set persistence to LOCAL immediately when the component mounts
   useEffect(() => {
-    // Set persistence to LOCAL to persist the session
-    setPersistence(auth, browserLocalPersistence)
-      .then(() => {
+    const initializeAuth = async () => {
+      try {
+        // Set persistence to LOCAL to persist the session across page refreshes
+        await setPersistence(auth, browserLocalPersistence)
         console.log("Auth persistence set to LOCAL")
-      })
-      .catch((error) => {
+        setAuthInitialized(true)
+      } catch (error) {
         console.error("Error setting auth persistence:", error)
-      })
+        // Even if setting persistence fails, we should still initialize auth
+        setAuthInitialized(true)
+      }
+    }
 
-    const unsubscribe = auth.onAuthStateChanged(async (user) => {
-      setUser(user)
-      if (user) {
+    initializeAuth()
+  }, [])
+
+  // Listen for auth state changes after persistence is set
+  useEffect(() => {
+    if (!authInitialized) return
+
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      console.log("Auth state changed:", currentUser ? "User logged in" : "No user")
+      setUser(currentUser)
+
+      if (currentUser) {
         try {
-          const userDocRef = doc(db, "users", user.uid)
+          const userDocRef = doc(db, "users", currentUser.uid)
           const userDoc = await getDoc(userDocRef)
           if (userDoc.exists()) {
-            setUserData({ id: userDoc.id, ...userDoc.data() } as User)
+            const userDataFromFirestore = { id: userDoc.id, ...userDoc.data() } as User
+            setUserData(userDataFromFirestore)
+            console.log("User data loaded from Firestore")
+          } else {
+            console.log("User document does not exist in Firestore")
+            setUserData(null)
           }
         } catch (error) {
-          console.error("Error al cargar datos del usuario:", error)
+          console.error("Error loading user data:", error)
+          setUserData(null)
         }
       } else {
         setUserData(null)
       }
+
       setLoading(false)
     })
 
     return () => unsubscribe()
-  }, [])
+  }, [authInitialized])
 
-  const login = async (email: string, password: string) => {
-    await signInWithEmailAndPassword(auth, email, password)
+  const login = async (email: string, password: string): Promise<void> => {
+    try {
+      // Persistence is already set, so we can just sign in
+      await signInWithEmailAndPassword(auth, email, password)
+      console.log("User logged in successfully")
+    } catch (error) {
+      console.error("Login error:", error)
+      throw error
+    }
   }
 
   const logout = async () => {
-    await signOut(auth)
+    try {
+      await signOut(auth)
+      console.log("User logged out successfully")
+    } catch (error) {
+      console.error("Logout error:", error)
+      throw error
+    }
   }
 
   const signup = async (
@@ -100,14 +136,14 @@ export function AuthContextProvider({ children }: { children: React.ReactNode })
     hospitals: string[] = [],
   ) => {
     try {
-      // Crear el usuario en Firebase Auth
+      // Create the user in Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(auth, email, password)
       const user = userCredential.user
 
-      // Preparar datos del usuario para Firestore
+      // Prepare user data for Firestore
       const now = new Date().toISOString()
 
-      // Si es neurofisiólogo y no se proporcionaron hospitales, usar el hospitalId como único hospital
+      // If neurofisiologo and no hospitals provided, use hospitalId as the only hospital
       if (role === "neurofisiologo" && hospitals.length === 0 && hospitalId) {
         hospitals = [hospitalId]
       }
@@ -124,12 +160,12 @@ export function AuthContextProvider({ children }: { children: React.ReactNode })
         updatedAt: now,
       }
 
-      // Añadir datos del usuario a Firestore
+      // Add user data to Firestore
       await setDoc(doc(db, "users", user.uid), userData)
 
-      console.log("Usuario creado exitosamente:", user.uid)
+      console.log("User created successfully:", user.uid)
     } catch (error) {
-      console.error("Error en el registro:", error)
+      console.error("Signup error:", error)
       throw error
     }
   }

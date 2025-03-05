@@ -12,63 +12,81 @@ import { doc, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 
 export default function Dashboard() {
-  const { userData } = useAuth()
+  const { userData, loading } = useAuth()
   const router = useRouter()
   const [selectedHospitalId, setSelectedHospitalId] = useState<string>("")
   const [selectedHospitalName, setSelectedHospitalName] = useState<string>("")
   const [availableHospitals, setAvailableHospitals] = useState<{ id: string; name: string }[]>([])
+  const [isLoadingHospitals, setIsLoadingHospitals] = useState(true)
 
   useEffect(() => {
+    // Only proceed if userData is available
     if (!userData) {
-      router.push("/login")
       return
     }
 
     const fetchHospitalDetails = async () => {
-      // Para cirujanos, usar su hospital asignado
-      if (userData.role === "cirujano" && userData.hospitalId) {
-        try {
-          const hospitalDoc = await getDoc(doc(db, "hospitals", userData.hospitalId))
-          if (hospitalDoc.exists()) {
-            const hospitalName = hospitalDoc.data().name
-            setSelectedHospitalId(userData.hospitalId)
-            setSelectedHospitalName(hospitalName)
-          }
-        } catch (error) {
-          console.error("Error al cargar detalles del hospital:", error)
-        }
-      }
-      // Para neurofisiólogos, cargar sus hospitales disponibles
-      else if (userData.role === "neurofisiologo" && userData.hospitals && userData.hospitals.length > 0) {
-        const hospitals = []
-        for (const hospitalId of userData.hospitals) {
+      setIsLoadingHospitals(true)
+      try {
+        // For surgeons, use their assigned hospital
+        if (userData.role === "cirujano" && userData.hospitalId) {
           try {
-            const hospitalDoc = await getDoc(doc(db, "hospitals", hospitalId))
+            const hospitalDoc = await getDoc(doc(db, "hospitals", userData.hospitalId))
             if (hospitalDoc.exists()) {
-              hospitals.push({
-                id: hospitalId,
-                name: hospitalDoc.data().name,
-              })
+              const hospitalName = hospitalDoc.data().name
+              setSelectedHospitalId(userData.hospitalId)
+              setSelectedHospitalName(hospitalName)
             }
           } catch (error) {
-            console.error(`Error al cargar detalles del hospital ${hospitalId}:`, error)
+            console.error("Error loading hospital details:", error)
           }
         }
-        setAvailableHospitals(hospitals)
+        // For neurophysiologists, load their available hospitals
+        else if (userData.role === "neurofisiologo" && userData.hospitals && userData.hospitals.length > 0) {
+          const hospitals = []
+          for (const hospitalId of userData.hospitals) {
+            try {
+              const hospitalDoc = await getDoc(doc(db, "hospitals", hospitalId))
+              if (hospitalDoc.exists()) {
+                hospitals.push({
+                  id: hospitalId,
+                  name: hospitalDoc.data().name,
+                })
+              }
+            } catch (error) {
+              console.error(`Error loading hospital details ${hospitalId}:`, error)
+            }
+          }
+          setAvailableHospitals(hospitals)
 
-        // Seleccionar el primer hospital por defecto
-        if (hospitals.length > 0) {
-          setSelectedHospitalId(hospitals[0].id)
-          setSelectedHospitalName(hospitals[0].name)
+          // Select the first hospital by default
+          if (hospitals.length > 0) {
+            setSelectedHospitalId(hospitals[0].id)
+            setSelectedHospitalName(hospitals[0].name)
+          }
         }
+      } catch (error) {
+        console.error("Error in fetchHospitalDetails:", error)
+      } finally {
+        setIsLoadingHospitals(false)
       }
     }
 
     fetchHospitalDetails()
-  }, [userData, router])
+  }, [userData])
 
+  // Show loading state while checking authentication or loading hospitals
+  if (loading || isLoadingHospitals) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      </div>
+    )
+  }
+
+  // If not loading but no userData, don't render anything (will be handled by layout)
   if (!userData) {
-    return <div>Cargando...</div>
+    return null
   }
 
   const handleHospitalChange = (hospitalId: string, hospitalName: string) => {

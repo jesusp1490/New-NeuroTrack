@@ -27,9 +27,11 @@ interface CalendarEvent {
   color?: string
   neurophysiologistId?: string
   neurophysiologistName?: string
+  neurophysiologists?: Array<{ id: string; name: string }> // Added for multiple neurophysiologists
   surgeryType?: string
   patientName?: string
   booked?: boolean
+  shiftIds?: string[] // Added to track multiple shift IDs
 }
 
 export default function OperatingRoomCalendar({
@@ -59,7 +61,7 @@ export default function OperatingRoomCalendar({
         surgeriesQuery = query(
           surgeriesRef,
           where("hospitalId", "==", hospitalId),
-          where("neurophysiologistId", "==", userId),
+          where("neurophysiologistIds", "array-contains", userId),
         )
       } else {
         surgeriesQuery = query(surgeriesRef, where("hospitalId", "==", hospitalId))
@@ -73,18 +75,24 @@ export default function OperatingRoomCalendar({
         const start = new Date(surgery.date)
         const end = new Date(start.getTime() + surgery.estimatedDuration * 60000)
 
-        // Get neurophysiologist name
-        let neurophysiologistName = "No asignado"
-        if (surgery.neurophysiologistId) {
-          try {
-            const userDocRef = doc(db, "users", surgery.neurophysiologistId)
-            const userDocSnapshot = await getDoc(userDocRef)
-            if (userDocSnapshot.exists()) {
-              const userData = userDocSnapshot.data()
-              neurophysiologistName = userData.name || "No asignado"
+        // Get neurophysiologist names
+        const neurophysiologists: Array<{ id: string; name: string }> = []
+
+        if (surgery.neurophysiologistIds && surgery.neurophysiologistIds.length > 0) {
+          for (const neuroId of surgery.neurophysiologistIds) {
+            try {
+              const userDocRef = doc(db, "users", neuroId)
+              const userDocSnapshot = await getDoc(userDocRef)
+              if (userDocSnapshot.exists()) {
+                const userData = userDocSnapshot.data()
+                neurophysiologists.push({
+                  id: neuroId,
+                  name: userData.name || "No asignado",
+                })
+              }
+            } catch (error) {
+              console.error("Error fetching neurophysiologist:", error)
             }
-          } catch (error) {
-            console.error("Error fetching neurophysiologist:", error)
           }
         }
 
@@ -95,10 +103,9 @@ export default function OperatingRoomCalendar({
           end,
           type: "surgery",
           status: surgery.status,
-          attendees: [neurophysiologistName],
+          attendees: neurophysiologists.map((n) => n.name),
           patientName: surgery.patientName,
-          neurophysiologistId: surgery.neurophysiologistId,
-          neurophysiologistName,
+          neurophysiologists: neurophysiologists,
         })
       }
 
@@ -117,46 +124,89 @@ export default function OperatingRoomCalendar({
       }
 
       const shiftsSnapshot = await getDocs(shiftsQuery)
-      const shiftEvents: CalendarEvent[] = []
+
+      // Group shifts by date and type to show multiple neurophysiologists in the same slot
+      const shiftGroups: Record<
+        string,
+        {
+          date: string
+          type: string
+          neurophysiologists: Array<{ id: string; name: string }>
+          shiftIds: string[]
+          booked: boolean
+        }
+      > = {}
 
       for (const docSnapshot of shiftsSnapshot.docs) {
         const shift = { id: docSnapshot.id, ...docSnapshot.data() } as Shift
+
+        // Skip booked shifts for the calendar view (they'll be shown as surgeries)
+        if (shift.booked && userRole === "cirujano") continue
+
         const shiftDate = new Date(shift.date)
-        const startHour = shift.type === "morning" ? 8 : 14
-        const endHour = shift.type === "morning" ? 14 : 20
+        const groupKey = `${shift.date}-${shift.type}`
+
+        // Get neurophysiologist name
+        let neurophysiologistName = "No asignado"
+        try {
+          const userDocRef = doc(db, "users", shift.neurophysiologistId)
+          const userDocSnapshot = await getDoc(userDocRef)
+          if (userDocSnapshot.exists()) {
+            const userData = userDocSnapshot.data()
+            neurophysiologistName = userData.name || "No asignado"
+          }
+        } catch (error) {
+          console.error("Error fetching neurophysiologist:", error)
+        }
+
+        // Add to or create group
+        if (!shiftGroups[groupKey]) {
+          shiftGroups[groupKey] = {
+            date: shift.date,
+            type: shift.type,
+            neurophysiologists: [
+              {
+                id: shift.neurophysiologistId,
+                name: neurophysiologistName,
+              },
+            ],
+            shiftIds: [shift.id],
+            booked: shift.booked,
+          }
+        } else {
+          shiftGroups[groupKey].neurophysiologists.push({
+            id: shift.neurophysiologistId,
+            name: neurophysiologistName,
+          })
+          shiftGroups[groupKey].shiftIds.push(shift.id)
+          // If any shift in the group is booked, mark the group as booked
+          shiftGroups[groupKey].booked = shiftGroups[groupKey].booked || shift.booked
+        }
+      }
+
+      // Convert shift groups to events
+      const shiftEvents: CalendarEvent[] = Object.values(shiftGroups).map((group) => {
+        const shiftDate = new Date(group.date)
+        const startHour = group.type === "morning" ? 8 : 14
+        const endHour = group.type === "morning" ? 14 : 20
 
         const start = new Date(shiftDate)
         start.setHours(startHour, 0, 0)
         const end = new Date(shiftDate)
         end.setHours(endHour, 0, 0)
 
-        // Get neurophysiologist name
-        let neurophysiologistName = "No asignado"
-        if (shift.neurophysiologistId) {
-          try {
-            const userDocRef = doc(db, "users", shift.neurophysiologistId)
-            const userDocSnapshot = await getDoc(userDocRef)
-            if (userDocSnapshot.exists()) {
-              const userData = userDocSnapshot.data()
-              neurophysiologistName = userData.name || "No asignado"
-            }
-          } catch (error) {
-            console.error("Error fetching neurophysiologist:", error)
-          }
-        }
-
-        shiftEvents.push({
-          id: `shift-${shift.id}`,
-          title: shift.booked ? "Turno Reservado" : "Turno Disponible",
+        return {
+          id: `shift-${group.shiftIds.join("-")}`,
+          title: group.booked ? "Turno Reservado" : "Turno Disponible",
           start,
           end,
           type: "shift",
-          attendees: [neurophysiologistName],
-          booked: shift.booked,
-          neurophysiologistId: shift.neurophysiologistId,
-          neurophysiologistName,
-        })
-      }
+          attendees: group.neurophysiologists.map((n) => n.name),
+          booked: group.booked,
+          neurophysiologists: group.neurophysiologists,
+          shiftIds: group.shiftIds,
+        }
+      })
 
       setEvents([...shiftEvents, ...surgeryEvents]) // Put shifts first so surgeries render on top
     } catch (error) {
@@ -169,7 +219,7 @@ export default function OperatingRoomCalendar({
 
   useEffect(() => {
     fetchEvents()
-  }, [fetchEvents, hospitalId, userRole, userId])
+  }, [fetchEvents, hospitalId, userRole, userId]) // Removed refreshTrigger
 
   const handleSlotClick = (date: Date) => {
     // Create a dialog to select duration or end time
