@@ -1,6 +1,7 @@
 import { initializeApp, getApps, getApp } from "firebase/app"
 import { getFirestore, collection, doc, getDoc, getDocs, query, where } from "firebase/firestore"
 import { getAuth } from "firebase/auth"
+import { getStorage } from "firebase/storage"
 import { Hospital, Room, User, Booking, Surgery, Shift } from "@/types"
 
 const firebaseConfig = {
@@ -16,6 +17,7 @@ const firebaseConfig = {
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig)
 const db = getFirestore(app)
 const auth = getAuth(app)
+const storage = getStorage(app)
 
 // Collection references
 const hospitalsRef = collection(db, "hospitals")
@@ -82,5 +84,4 @@ export async function getShiftsByNeurophysiologist(
   return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as Shift)
 }
 
-export { db, auth }
-
+export { db, auth, storage }

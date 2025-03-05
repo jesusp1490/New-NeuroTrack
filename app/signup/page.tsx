@@ -1,26 +1,30 @@
 "use client"
 
-import type React from "react"
-
+import React from "react"
 import { useState, useRef } from "react"
 import { useAuth } from "@/app/context/AuthContext"
 import { useRouter } from "next/navigation"
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage"
 import Image from "next/image"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { AlertCircle } from "lucide-react"
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage"
 
 export default function Signup() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [name, setName] = useState("")
   const [role, setRole] = useState<"cirujano" | "neurofisiologo" | "administrativo" | "jefe_departamento">("cirujano")
   const [hospital, setHospital] = useState("")
   const [gender, setGender] = useState<"male" | "female">("male")
   const [error, setError] = useState("")
   const [profilePicture, setProfilePicture] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const { signup } = useAuth()
   const router = useRouter()
+  const storage = getStorage()
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -32,20 +36,37 @@ export default function Signup() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setIsUploading(true)
+    setError("")
+
     try {
       let profilePictureUrl = ""
+
+      // Only attempt to upload if a profile picture was selected
       if (profilePicture) {
-        const storage = getStorage()
-        const storageRef = ref(storage, `profile_pictures/${Date.now()}_${profilePicture.name}`)
-        await uploadBytes(storageRef, profilePicture)
-        profilePictureUrl = await getDownloadURL(storageRef)
+        try {
+          // Create a storage reference
+          const storageRef = ref(storage, `profile-pictures/${Date.now()}-${profilePicture.name}`)
+
+          // Upload the file
+          await uploadBytes(storageRef, profilePicture)
+
+          // Get the download URL
+          profilePictureUrl = await getDownloadURL(storageRef)
+        } catch (uploadError) {
+          console.error("Profile picture upload failed:", uploadError)
+          // Continue with signup even if upload fails
+        }
       }
 
-      await signup(email, password, role, gender, profilePictureUrl, role === "cirujano" ? hospital : undefined)
+      // Create user with or without profile picture
+      await signup(email, password, name, role, gender, profilePictureUrl, role === "cirujano" ? hospital : undefined)
       router.push("/dashboard")
     } catch (error) {
-      setError("Failed to create an account.")
+      setError("Failed to create an account. " + (error instanceof Error ? error.message : "Unknown error"))
       console.error(error)
+    } finally {
+      setIsUploading(false)
     }
   }
 
@@ -55,6 +76,13 @@ export default function Signup() {
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">Sign up for an account</h2>
         </div>
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <input type="hidden" name="remember" value="true" />
           <div className="rounded-md shadow-sm -space-y-px">
@@ -72,6 +100,22 @@ export default function Signup() {
                 placeholder="Email address"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+            <div>
+              <label htmlFor="name" className="sr-only">
+                Full Name
+              </label>
+              <input
+                id="name"
+                name="name"
+                type="text"
+                autoComplete="name"
+                required
+                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                placeholder="Full Name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
               />
             </div>
             <div>
@@ -147,7 +191,7 @@ export default function Signup() {
 
           <div>
             <label htmlFor="profile-picture" className="block text-sm font-medium text-gray-700">
-              Profile Picture
+              Profile Picture (Optional)
             </label>
             <div className="mt-1 flex items-center">
               {previewUrl ? (
@@ -174,16 +218,19 @@ export default function Signup() {
               </button>
             </div>
             <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
+            <p className="mt-1 text-xs text-gray-500">
+              Note: Profile picture upload is optional. If you encounter any issues, you can continue without one and
+              add it later.
+            </p>
           </div>
-
-          {error && <div className="text-red-500 text-sm">{error}</div>}
 
           <div>
             <button
               type="submit"
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              disabled={isUploading}
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
             >
-              Sign up
+              {isUploading ? "Creating account..." : "Sign up"}
             </button>
           </div>
         </form>

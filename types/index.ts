@@ -16,8 +16,10 @@ export interface User {
   id: string
   email: string
   name: string
-  role: UserRole
+  role: "cirujano" | "neurofisiologo" | "administrativo" | "jefe_departamento"
   hospitalId: string
+  gender: string
+  profilePictureUrl?: string
   createdAt: string
   updatedAt: string
 }
