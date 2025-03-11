@@ -14,9 +14,10 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
-import type { Surgery, SurgeryType, User } from "@/types"
+import { Surgery, SurgeryType, User } from "@/types"
 import { bookSurgery, fetchSurgeryTypes } from "@/lib/surgeryService"
 import { surgeryTypes } from "@/lib/surgeryTypes"
+import { sendSurgeryNotificationEmails } from "@/lib/emailService"
 
 export interface SlotInfo {
   start: Date
@@ -285,7 +286,17 @@ export default function SurgeryBookingDialog({
       console.log("Surgery data being submitted:", surgeryData)
 
       // Book the surgery and update the shifts
-      await bookSurgery(surgeryData, selectedShiftIds)
+      const result = await bookSurgery(surgeryData, selectedShiftIds)
+
+      // Send notification emails
+      if (result.success && result.surgeryId) {
+        try {
+          await sendSurgeryNotificationEmails(result.surgeryId)
+        } catch (emailError) {
+          console.error("Error sending notification emails:", emailError)
+          // Continue even if email sending fails
+        }
+      }
 
       // Call onComplete to refresh the calendar
       onComplete()

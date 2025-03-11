@@ -15,6 +15,7 @@ export interface User {
 export interface Hospital {
   id: string
   name: string
+  logoUrl?: string // Add this field for hospital logos
 }
 
 export interface Room {
@@ -69,4 +70,20 @@ export interface SurgeryMaterial {
   name: string
   ref?: string
 }
+
+// Add the missing Booking type
+export interface Booking {
+  id: string
+  roomId: string
+  date: string // ISO string format
+  startTime: string
+  endTime: string
+  surgeonId: string
+  neurophysiologistId: string
+  status: "scheduled" | "completed" | "cancelled"
+  createdAt: string
+  updatedAt: string
+}
+
+
 
