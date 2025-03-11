@@ -1,8 +1,7 @@
 "use client"
 
 import React from "react"
-
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useAuth } from "@/app/context/AuthContext"
 import { useRouter } from "next/navigation"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -20,24 +19,65 @@ export default function Login() {
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [selectedRole, setSelectedRole] = useState<string>("cirujano")
+  const [loginAttempted, setLoginAttempted] = useState(false)
 
-  const { login } = useAuth()
+  const { login, user, userData, loading } = useAuth()
   const router = useRouter()
+
+  // Debug logging
+  useEffect(() => {
+    console.log("Login page state:", {
+      loading,
+      user: user ? `Authenticated: ${user.email}` : "Not authenticated",
+      userData: userData ? `Role: ${userData.role}` : "No user data",
+      loginAttempted,
+    })
+  }, [loading, user, userData, loginAttempted])
+
+  // If user is already logged in, redirect to dashboard
+  useEffect(() => {
+    if (user && userData) {
+      console.log("User already logged in, redirecting to dashboard")
+      router.push("/dashboard")
+    }
+  }, [user, userData, router])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
     setError("")
+    setLoginAttempted(true)
 
     try {
+      console.log(`Attempting login with email: ${email}`)
       await login(email, password)
-      router.push("/dashboard")
+      // Don't redirect here - let the useEffect handle it after userData is loaded
     } catch (error) {
+      console.error("Login error in component:", error)
       setError("Failed to log in. " + (error instanceof Error ? error.message : "Invalid email or password"))
-      console.error(error)
     } finally {
       setIsLoading(false)
     }
+  }
+
+  // Show loading spinner while auth is being checked
+  if (loading && !loginAttempted) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+        <p className="ml-2 text-gray-600">Verificando autenticación...</p>
+      </div>
+    )
+  }
+
+  // If user is already logged in, show loading while redirecting
+  if (user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+        <p className="ml-2 text-gray-600">Redirigiendo al panel de control...</p>
+      </div>
+    )
   }
 
   return (
@@ -95,8 +135,8 @@ export default function Login() {
                       required
                     />
                   </div>
-                  <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading
+                  <Button type="submit" className="w-full" disabled={isLoading || loading}>
+                    {isLoading || loading
                       ? "Logging in..."
                       : `Login as ${role.charAt(0).toUpperCase() + role.slice(1).replace("_", " ")}`}
                   </Button>
