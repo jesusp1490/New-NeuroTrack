@@ -15,7 +15,9 @@ import { format } from "date-fns"
 export default function NeurofisiologoShiftManager() {
   const { userData } = useAuth()
   const [shifts, setShifts] = useState<Shift[]>([])
-  const [newShift, setNewShift] = useState<Omit<Shift, "id" | "neurophysiologistId" | "booked" | "createdAt">>({
+  const [newShift, setNewShift] = useState<
+    Omit<Shift, "id" | "neurophysiologistId" | "booked" | "createdAt" | "updatedAt">
+  >({
     date: "",
     type: "morning",
     hospitalId: userData?.hospitalId || "",
@@ -48,13 +50,16 @@ export default function NeurofisiologoShiftManager() {
     e.preventDefault()
     if (!userData?.id || !selectedDate) return
 
+    const currentTime = new Date().toISOString()
+
     const shift: Omit<Shift, "id"> = {
       ...newShift,
       date: format(selectedDate, "yyyy-MM-dd"),
       neurophysiologistId: userData.id,
       neurophysiologistName: userData.name || "",
       booked: false,
-      createdAt: new Date().toISOString(),
+      createdAt: currentTime,
+      updatedAt: currentTime, // Add this line to fix the TypeScript error
     }
 
     try {

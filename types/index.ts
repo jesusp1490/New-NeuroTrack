@@ -38,6 +38,7 @@ export interface Room {
 export interface Shift {
   id: string
   neurophysiologistId: string
+  neurophysiologistName?: string
   hospitalId: string
   roomId?: string
   date: string
