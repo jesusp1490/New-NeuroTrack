@@ -5,8 +5,9 @@ import type { Surgery, User, Hospital } from "@/types"
 /**
  * Sends notification emails for a surgery booking using the surgery ID
  * @param surgeryId The ID of the surgery document
+ * @param additionalRecipients Optional array of additional email addresses to send notifications to
  */
-export async function sendSurgeryNotificationEmails(surgeryId: string) {
+export async function sendSurgeryNotificationEmails(surgeryId: string, additionalRecipients: string[] = []) {
   try {
     // Fetch the surgery document
     const surgeryRef = doc(db, "surgeries", surgeryId)
@@ -82,6 +83,9 @@ export async function sendSurgeryNotificationEmails(surgeryId: string) {
       `
     }
 
+    // Generate PDF attachment (placeholder - you'll need to implement this)
+    const pdfAttachment = await generateSurgeryPDF(surgery, surgeon, neurophysiologists, hospital)
+
     // Email to surgeon
     await addDoc(collection(db, "mail"), {
       to: surgeon.email,
@@ -104,6 +108,13 @@ export async function sendSurgeryNotificationEmails(surgeryId: string) {
           ${surgery.notes ? `<p><strong>Notas:</strong> ${surgery.notes}</p>` : ""}
           <p>Gracias por usar NeuroTrack.</p>
         `,
+        attachments: [
+          {
+            filename: `cirugia_${surgeryId}.pdf`,
+            content: pdfAttachment,
+            contentType: "application/pdf",
+          },
+        ],
       },
     })
 
@@ -131,8 +142,53 @@ export async function sendSurgeryNotificationEmails(surgeryId: string) {
             <p>Por favor, asegúrese de estar disponible a la hora programada.</p>
             <p>Gracias por usar NeuroTrack.</p>
           `,
+          attachments: [
+            {
+              filename: `cirugia_${surgeryId}.pdf`,
+              content: pdfAttachment,
+              contentType: "application/pdf",
+            },
+          ],
         },
       })
+    }
+
+    // Send to additional recipients if provided
+    if (additionalRecipients.length > 0) {
+      for (const email of additionalRecipients) {
+        await addDoc(collection(db, "mail"), {
+          to: email,
+          message: {
+            subject: `Información de Cirugía - ${surgery.patientName}`,
+            html: `
+              <h1>Información de Cirugía</h1>
+              <p>Se ha programado una nueva cirugía con los siguientes detalles:</p>
+              <p><strong>Detalles:</strong></p>
+              <ul>
+                <li>Paciente: ${surgery.patientName}</li>
+                <li>Hospital: ${hospital.name}</li>
+                <li>Fecha: ${surgeryDate}</li>
+                <li>Hora: ${startTime} - ${endTime} (Estimado)</li>
+                <li>Tipo de Cirugía: ${surgery.surgeryType}</li>
+                <li>Cirujano: Dr. ${surgeon.name}</li>
+                <li>Neurofisiólogos: ${neurophysiologists.map((n) => `Dr. ${n.name}`).join(", ")}</li>
+                <li>Estado: ${surgery.status}</li>
+              </ul>
+              ${materialsHtml}
+              ${surgery.notes ? `<p><strong>Notas:</strong> ${surgery.notes}</p>` : ""}
+              <p>Este es un mensaje informativo. Por favor, no responda a este correo.</p>
+              <p>Gracias por usar NeuroTrack.</p>
+            `,
+            attachments: [
+              {
+                filename: `cirugia_${surgeryId}.pdf`,
+                content: pdfAttachment,
+                contentType: "application/pdf",
+              },
+            ],
+          },
+        })
+      }
     }
 
     console.log("Surgery notification emails sent successfully")
@@ -144,6 +200,26 @@ export async function sendSurgeryNotificationEmails(surgeryId: string) {
       error: error instanceof Error ? error.message : "Unknown error",
     }
   }
+}
+
+/**
+ * Generate a PDF for the surgery details
+ * This is a placeholder function - you'll need to implement the actual PDF generation
+ */
+async function generateSurgeryPDF(
+  surgery: Surgery,
+  surgeon: User,
+  neurophysiologists: User[],
+  hospital: Hospital,
+): Promise<string> {
+  // This is a placeholder - you'll need to implement actual PDF generation
+  // For example, using a library like PDFKit or jsPDF
+
+  // For now, we'll return a base64 encoded simple PDF
+  // In a real implementation, you would generate a proper PDF with all the surgery details
+
+  // This is a minimal valid PDF in base64 format
+  return "JVBERi0xLjcKJeLjz9MKNSAwIG9iago8PAovRmlsdGVyIC9GbGF0ZURlY29kZQovTGVuZ3RoIDM4Cj4+CnN0cmVhbQp4nCvkMlAwUDC1NNUzMVGwMDHUszRSKErlCtfiyuMK5AIAXQ8GCgplbmRzdHJlYW0KZW5kb2JqCjQgMCBvYmoKPDwKL1R5cGUgL1BhZ2UKL01lZGlhQm94IFswIDAgNTk1IDg0Ml0KL1Jlc291cmNlcyA8PAo+PgovQ29udGVudHMgNSAwIFIKL1BhcmVudCAyIDAgUgo+PgplbmRvYmoKMiAwIG9iago8PAovVHlwZSAvUGFnZXMKL0tpZHMgWzQgMCBSXQovQ291bnQgMQo+PgplbmRvYmoKMSAwIG9iago8PAovVHlwZSAvQ2F0YWxvZwovUGFnZXMgMiAwIFIKPj4KZW5kb2JqCjMgMCBvYmoKPDwKL3RyYXBwZWQgKGZhbHNlKQovQ3JlYXRvciAoU3VyZ2VyeSBEZXRhaWxzKQovVGl0bGUgKFN1cmdlcnkgRGV0YWlscykKL0NyZWF0aW9uRGF0ZSAoRDoyMDIzMDEwMTEyMDAwMFopCj4+CmVuZG9iagp4cmVmCjAgNgowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAyNTYgMDAwMDAgbiAKMDAwMDAwMDIwMSAwMDAwMCBuIAowMDAwMDAwMzA1IDAwMDAwIG4gCjAwMDAwMDAxMDMgMDAwMDAgbiAKMDAwMDAwMDAxNSAwMDAwMCBuIAp0cmFpbGVyCjw8Ci9TaXplIDYKL1Jvb3QgMSAwIFIKL0luZm8gMyAwIFIKPj4Kc3RhcnR4cmVmCjQxMwolJUVPRgo="
 }
 
 /**

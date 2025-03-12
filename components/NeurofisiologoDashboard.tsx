@@ -79,25 +79,33 @@ export default function NeurofisiologoDashboard({ hospitalId, hospitalName }: Ne
 
   useEffect(() => {
     const fetchUpcomingSurgeries = async () => {
-      if (!userData?.id || !hospitalId) return
+      if (!userData?.id || !hospitalId) {
+        console.log("Missing userData.id or hospitalId, skipping fetch")
+        return
+      }
 
+      setLoading(true)
       try {
+        console.log(`Fetching surgeries for neurophysiologist: ${userData.id} at hospital: ${hospitalId}`)
         const now = new Date()
         const surgeriesRef = collection(db, "surgeries")
+
         // First, try to find surgeries with the new array-based structure
         const q = query(
           surgeriesRef,
           where("neurophysiologistIds", "array-contains", userData.id),
           where("hospitalId", "==", hospitalId),
-          where("date", ">=", now.toISOString()),
           where("status", "==", "scheduled"),
         )
 
         // Get surgeries with the new structure
         const querySnapshot = await getDocs(q)
+        console.log(`Found ${querySnapshot.size} surgeries with neurophysiologistIds array`)
+
         const surgeries = await Promise.all(
           querySnapshot.docs.map(async (docSnapshot) => {
             const surgeryData = docSnapshot.data()
+            console.log(`Processing surgery: ${docSnapshot.id}`, surgeryData)
 
             // Get surgeon name if surgeonId exists
             let surgeonName = "Desconocido"
@@ -128,10 +136,10 @@ export default function NeurofisiologoDashboard({ hospitalId, hospitalName }: Ne
             return {
               id: docSnapshot.id,
               date: surgeryData.date,
-              surgeryType: surgeryData.surgeryType,
-              patientName: surgeryData.patientName,
-              estimatedDuration: surgeryData.estimatedDuration,
-              status: surgeryData.status,
+              surgeryType: surgeryData.surgeryType || surgeryData.type || "Tipo no especificado",
+              patientName: surgeryData.patientName || "Paciente no especificado",
+              estimatedDuration: surgeryData.estimatedDuration || 60,
+              status: surgeryData.status || "scheduled",
               surgeonId: surgeryData.surgeonId,
               surgeonName,
               materials: surgeryData.materials,
@@ -147,14 +155,16 @@ export default function NeurofisiologoDashboard({ hospitalId, hospitalName }: Ne
           surgeriesRef,
           where("neurophysiologistId", "==", userData.id),
           where("hospitalId", "==", hospitalId),
-          where("date", ">=", now.toISOString()),
           where("status", "==", "scheduled"),
         )
 
         const oldQuerySnapshot = await getDocs(qOld)
+        console.log(`Found ${oldQuerySnapshot.size} surgeries with old neurophysiologistId field`)
+
         const oldSurgeries = await Promise.all(
           oldQuerySnapshot.docs.map(async (docSnapshot) => {
             const surgeryData = docSnapshot.data()
+            console.log(`Processing old surgery: ${docSnapshot.id}`, surgeryData)
 
             // Get surgeon name if surgeonId exists
             let surgeonName = "Desconocido"
@@ -185,10 +195,10 @@ export default function NeurofisiologoDashboard({ hospitalId, hospitalName }: Ne
             return {
               id: docSnapshot.id,
               date: surgeryData.date,
-              surgeryType: surgeryData.surgeryType,
-              patientName: surgeryData.patientName,
-              estimatedDuration: surgeryData.estimatedDuration,
-              status: surgeryData.status,
+              surgeryType: surgeryData.surgeryType || surgeryData.type || "Tipo no especificado",
+              patientName: surgeryData.patientName || "Paciente no especificado",
+              estimatedDuration: surgeryData.estimatedDuration || 60,
+              status: surgeryData.status || "scheduled",
               surgeonId: surgeryData.surgeonId,
               surgeonName,
               materials: surgeryData.materials,
@@ -207,13 +217,14 @@ export default function NeurofisiologoDashboard({ hospitalId, hospitalName }: Ne
           }
         }
 
-        // Ordenar por fecha
-        surgeries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        // Ordenar por fecha (de más reciente a más antigua)
+        surgeries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
+        console.log(`Total surgeries after combining: ${surgeries.length}`)
         setUpcomingSurgeries(surgeries)
-        setLoading(false)
       } catch (error) {
         console.error("Error al obtener cirugías:", error)
+      } finally {
         setLoading(false)
       }
     }
@@ -257,7 +268,7 @@ export default function NeurofisiologoDashboard({ hospitalId, hospitalName }: Ne
 
     fetchUpcomingSurgeries()
     fetchMyShifts()
-  }, [userData?.id, hospitalId])
+  }, [userData?.id, hospitalId, refreshTrigger])
 
   const handleAddShift = async () => {
     if (!userData?.id || !hospitalId) return
@@ -490,7 +501,9 @@ export default function NeurofisiologoDashboard({ hospitalId, hospitalName }: Ne
 
             <TabsContent value="surgeries">
               {loading ? (
-                <div className="text-center py-8">Cargando...</div>
+                <div className="flex justify-center py-8">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+                </div>
               ) : upcomingSurgeries.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">No hay cirugías programadas próximamente</div>
               ) : (
