@@ -20,6 +20,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { SlotInfo } from "./SurgeryBookingDialog"
 import { jsPDF } from "jspdf"
 import { useRouter } from "next/navigation"
+import HospitalLogo from "./HospitalLogo"
 
 interface NeurofisiologoDashboardProps {
   hospitalId: string
@@ -67,6 +68,7 @@ export default function NeurofisiologoDashboard({ hospitalId, hospitalName }: Ne
   >([])
   const [selectedSurgery, setSelectedSurgery] = useState<string | null>(null)
   const pdfRef = useRef<HTMLDivElement>(null)
+  const [hospitalLogo, setHospitalLogo] = useState<string | undefined>(undefined)
 
   const handleLogout = async () => {
     try {
@@ -222,6 +224,16 @@ export default function NeurofisiologoDashboard({ hospitalId, hospitalName }: Ne
 
         console.log(`Total surgeries after combining: ${surgeries.length}`)
         setUpcomingSurgeries(surgeries)
+
+        // Add this code to fetch the hospital logo
+        try {
+          const hospitalDoc = await getDoc(doc(db, "hospitals", hospitalId))
+          if (hospitalDoc.exists()) {
+            setHospitalLogo(hospitalDoc.data().logoUrl)
+          }
+        } catch (error) {
+          console.error("Error fetching hospital logo:", error)
+        }
       } catch (error) {
         console.error("Error al obtener cirugías:", error)
       } finally {
@@ -404,10 +416,13 @@ export default function NeurofisiologoDashboard({ hospitalId, hospitalName }: Ne
   return (
     <div className="space-y-6">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>Panel de Neurofisiólogo - {hospitalName}</CardTitle>
-            <CardDescription>Gestiona tus turnos y cirugías programadas</CardDescription>
+        <CardHeader className="flex flex-row items-left justify-between">
+          <div className="flex items-center gap-3">
+            <div>
+              <CardTitle>Panel de Neurofisiólogo</CardTitle>
+              <CardDescription>Gestiona tus turnos y cirugías programadas</CardDescription>
+              <HospitalLogo logoUrl={hospitalLogo} hospitalName={hospitalName} size="3xl" />
+            </div>
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">

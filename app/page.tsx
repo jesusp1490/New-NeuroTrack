@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,6 +11,12 @@ import { useAuth } from "./context/AuthContext"
 export default function HomePage() {
   const router = useRouter()
   const { user, loading } = useAuth()
+  const [imageLoaded, setImageLoaded] = useState(false)
+  const [imageError, setImageError] = useState(false)
+
+  // Direct URL to the logo in Firebase Storage
+  const logoUrl =
+    "https://firebasestorage.googleapis.com/v0/b/neurotrack-c6193.firebasestorage.app/o/NeuroTrack-logo.webp?alt=media&token=5129136c-bb08-4771-b2e2-317634925dca"
 
   // Redirect to dashboard if already logged in
   useEffect(() => {
@@ -31,10 +37,32 @@ export default function HomePage() {
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-blue-50 to-white p-4 sm:p-6 md:p-8">
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="text-center pb-2">
-          <div className="mx-auto mb-4 relative w-24 h-24">
-            <Image src="/logo.png" alt="NeuroTrack Logo" fill className="object-contain" priority />
+          <div className="mx-auto mb-6 relative w-40 h-40">
+            {!imageLoaded && !imageError && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="animate-spin h-8 w-8 border-b-2 border-primary"></div>
+              </div>
+            )}
+
+            {!imageError ? (
+              <Image
+                src={logoUrl || "/placeholder.svg"}
+                alt="NeuroTrack Logo"
+                fill
+                className={`object-contain transition-opacity duration-300 ${imageLoaded ? "opacity-100" : "opacity-0"}`}
+                priority
+                unoptimized // Bypass image optimization for external URLs
+                onLoad={() => setImageLoaded(true)}
+                onError={() => setImageError(true)}
+              />
+            ) : (
+              // Fallback if logo can't be loaded
+              <div className="absolute inset-0 flex items-center justify-center bg-primary/10 rounded-full">
+                <span className="text-2xl font-bold text-primary">NT</span>
+              </div>
+            )}
           </div>
-          <CardTitle className="text-3xl font-bold text-primary">NeuroTrack</CardTitle>
+          {/* <CardTitle className="text-3xl font-bold text-primary">NeuroTrack</CardTitle> */}
           <CardDescription className="text-lg">Sistema de gestión de cirugías neurológicas</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 pt-4">

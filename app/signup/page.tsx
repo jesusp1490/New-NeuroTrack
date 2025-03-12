@@ -1,20 +1,24 @@
 "use client"
 
 import React from "react"
+
 import { useState, useRef, useEffect } from "react"
 import { useAuth } from "@/app/context/AuthContext"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { AlertCircle } from "lucide-react"
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage"
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage"
 import { collection, getDocs } from "firebase/firestore"
-import { db } from "@/lib/firebase"
+import { db, storage } from "@/lib/firebase"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 
 interface Hospital {
   id: string
   name: string
+  logoUrl?: string
 }
 
 export default function Signup() {
@@ -30,25 +34,38 @@ export default function Signup() {
   const [profilePicture, setProfilePicture] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const [isLoadingHospitals, setIsLoadingHospitals] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const { signup } = useAuth()
   const router = useRouter()
-  const storage = getStorage()
 
+  // Fetch hospitals on component mount
   useEffect(() => {
-    // Cargar la lista de hospitales
     const fetchHospitals = async () => {
+      setIsLoadingHospitals(true)
       try {
+        console.log("Fetching hospitals for signup...")
         const hospitalsRef = collection(db, "hospitals")
         const snapshot = await getDocs(hospitalsRef)
-        const hospitalsList = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          name: doc.data().name,
-        }))
-        setHospitals(hospitalsList)
+
+        if (snapshot.empty) {
+          console.log("No hospitals found in database")
+          setHospitals([])
+        } else {
+          const hospitalsList = snapshot.docs.map((doc) => ({
+            id: doc.id,
+            name: doc.data().name,
+            logoUrl: doc.data().logoUrl,
+          }))
+          console.log(`Found ${hospitalsList.length} hospitals:`, hospitalsList)
+          setHospitals(hospitalsList)
+        }
       } catch (error) {
-        console.error("Error al cargar hospitales:", error)
+        console.error("Error fetching hospitals:", error)
+        setError("Error al cargar la lista de hospitales. Por favor, intente de nuevo.")
+      } finally {
+        setIsLoadingHospitals(false)
       }
     }
 
@@ -65,9 +82,9 @@ export default function Signup() {
 
   const handleHospitalChange = (hospitalId: string, isChecked: boolean) => {
     if (isChecked) {
-      setSelectedHospitals([...selectedHospitals, hospitalId])
+      setSelectedHospitals((prev) => [...prev, hospitalId])
     } else {
-      setSelectedHospitals(selectedHospitals.filter((id) => id !== hospitalId))
+      setSelectedHospitals((prev) => prev.filter((id) => id !== hospitalId))
     }
   }
 
@@ -77,36 +94,49 @@ export default function Signup() {
     setError("")
 
     try {
+      // Validate required fields
+      if (!email || !password || !name) {
+        throw new Error("Por favor complete todos los campos requeridos")
+      }
+
+      // Validate hospital selection based on role
+      if (role === "cirujano" && !hospital) {
+        throw new Error("Por favor seleccione un hospital")
+      }
+
+      if (role === "neurofisiologo" && selectedHospitals.length === 0) {
+        throw new Error("Por favor seleccione al menos un hospital donde trabaja")
+      }
+
       let profilePictureUrl = ""
 
-      // Solo intentar subir si se seleccionó una foto de perfil
+      // Upload profile picture if selected
       if (profilePicture) {
         try {
-          // Crear una referencia de almacenamiento
           const storageRef = ref(storage, `profile-pictures/${Date.now()}-${profilePicture.name}`)
-
-          // Subir el archivo
           await uploadBytes(storageRef, profilePicture)
-
-          // Obtener la URL de descarga
           profilePictureUrl = await getDownloadURL(storageRef)
+          console.log("Profile picture uploaded successfully:", profilePictureUrl)
         } catch (uploadError) {
-          console.error("Error al subir la foto de perfil:", uploadError)
-          // Continuar con el registro incluso si falla la carga
+          console.error("Error uploading profile picture:", uploadError)
+          // Continue with signup even if image upload fails
         }
       }
 
-      // Crear usuario con o sin foto de perfil
+      // Create user with appropriate hospital data
       if (role === "neurofisiologo") {
+        console.log("Creating neurofisiologo with hospitals:", selectedHospitals)
         await signup(email, password, name, role, gender, profilePictureUrl, "", selectedHospitals)
       } else {
+        console.log("Creating user with hospital:", hospital)
         await signup(email, password, name, role, gender, profilePictureUrl, hospital)
       }
 
+      // Redirect to dashboard on success
       router.push("/dashboard")
     } catch (error) {
-      setError("Error al crear la cuenta. " + (error instanceof Error ? error.message : "Error desconocido"))
-      console.error(error)
+      setError("Error al crear la cuenta: " + (error instanceof Error ? error.message : "Error desconocido"))
+      console.error("Signup error:", error)
     } finally {
       setIsUploading(false)
     }
@@ -114,38 +144,39 @@ export default function Signup() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">Registrar una cuenta</h2>
-        </div>
-        {error && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Error</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          <input type="hidden" name="remember" value="true" />
-          <div className="rounded-md shadow-sm -space-y-px">
-            <div>
-              <label htmlFor="email-address" className="sr-only">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle className="text-2xl font-bold text-center">Crear Cuenta en NeuroTrack</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {error && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <label htmlFor="email" className="block text-sm font-medium">
                 Correo electrónico
               </label>
               <input
-                id="email-address"
+                id="email"
                 name="email"
                 type="email"
                 autoComplete="email"
                 required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                placeholder="Correo electrónico"
+                className="appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                placeholder="ejemplo@hospital.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
             </div>
-            <div>
-              <label htmlFor="name" className="sr-only">
+
+            <div className="space-y-2">
+              <label htmlFor="name" className="block text-sm font-medium">
                 Nombre completo
               </label>
               <input
@@ -154,37 +185,39 @@ export default function Signup() {
                 type="text"
                 autoComplete="name"
                 required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                placeholder="Nombre completo"
+                className="appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                placeholder="Dr. Juan Pérez"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
-            <div>
-              <label htmlFor="password" className="sr-only">
+
+            <div className="space-y-2">
+              <label htmlFor="password" className="block text-sm font-medium">
                 Contraseña
               </label>
               <input
                 id="password"
                 name="password"
                 type="password"
-                autoComplete="current-password"
+                autoComplete="new-password"
                 required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                placeholder="Contraseña"
+                className="appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                placeholder="********"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
-            <div>
-              <label htmlFor="role" className="sr-only">
+
+            <div className="space-y-2">
+              <label htmlFor="role" className="block text-sm font-medium">
                 Rol
               </label>
               <select
                 id="role"
                 name="role"
                 required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                className="appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                 value={role}
                 onChange={(e) =>
                   setRole(e.target.value as "cirujano" | "neurofisiologo" | "administrativo" | "jefe_departamento")
@@ -192,60 +225,84 @@ export default function Signup() {
               >
                 <option value="cirujano">Cirujano</option>
                 <option value="neurofisiologo">Neurofisiólogo</option>
-                <option value="administrativo">Administrativo</option>
                 <option value="jefe_departamento">Jefe de Departamento</option>
+                <option value="administrativo">Administrativo</option>
               </select>
             </div>
+
             {role === "cirujano" && (
-              <div>
-                <label htmlFor="hospital" className="sr-only">
+              <div className="space-y-2">
+                <label htmlFor="hospital" className="block text-sm font-medium">
                   Hospital
                 </label>
                 <select
                   id="hospital"
                   name="hospital"
                   required
-                  className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                  className="appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                   value={hospital}
                   onChange={(e) => setHospital(e.target.value)}
                 >
                   <option value="">Seleccionar hospital</option>
-                  {hospitals.map((h) => (
-                    <option key={h.id} value={h.id}>
-                      {h.name}
-                    </option>
-                  ))}
+                  {isLoadingHospitals ? (
+                    <option disabled>Cargando hospitales...</option>
+                  ) : hospitals.length === 0 ? (
+                    <option disabled>No hay hospitales disponibles</option>
+                  ) : (
+                    hospitals.map((h) => (
+                      <option key={h.id} value={h.id}>
+                        {h.name}
+                      </option>
+                    ))
+                  )}
                 </select>
+                {hospitals.length === 0 && !isLoadingHospitals && (
+                  <p className="text-sm text-red-500">
+                    No hay hospitales disponibles. Por favor, contacte al administrador.
+                  </p>
+                )}
               </div>
             )}
+
             {role === "neurofisiologo" && (
-              <div className="p-4 border border-gray-300">
-                <p className="text-sm font-medium mb-2">Seleccione los hospitales donde trabaja:</p>
-                <div className="space-y-2">
-                  {hospitals.map((h) => (
-                    <div key={h.id} className="flex items-center">
-                      <Checkbox
-                        id={`hospital-${h.id}`}
-                        checked={selectedHospitals.includes(h.id)}
-                        onCheckedChange={(checked) => handleHospitalChange(h.id, checked === true)}
-                      />
-                      <label htmlFor={`hospital-${h.id}`} className="ml-2 text-sm">
-                        {h.name}
-                      </label>
+              <div className="space-y-2">
+                <label className="block text-sm font-medium">Hospitales donde trabaja</label>
+                <div className="border border-gray-300 rounded-md p-3 max-h-60 overflow-y-auto">
+                  {isLoadingHospitals ? (
+                    <p className="text-sm text-gray-500">Cargando hospitales...</p>
+                  ) : hospitals.length === 0 ? (
+                    <p className="text-sm text-red-500">
+                      No hay hospitales disponibles. Por favor, contacte al administrador.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {hospitals.map((h) => (
+                        <div key={h.id} className="flex items-center">
+                          <Checkbox
+                            id={`hospital-${h.id}`}
+                            checked={selectedHospitals.includes(h.id)}
+                            onCheckedChange={(checked) => handleHospitalChange(h.id, checked === true)}
+                          />
+                          <label htmlFor={`hospital-${h.id}`} className="ml-2 text-sm">
+                            {h.name}
+                          </label>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
             )}
-            <div>
-              <label htmlFor="gender" className="sr-only">
+
+            <div className="space-y-2">
+              <label htmlFor="gender" className="block text-sm font-medium">
                 Género
               </label>
               <select
                 id="gender"
                 name="gender"
                 required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                className="appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                 value={gender}
                 onChange={(e) => setGender(e.target.value as "male" | "female")}
               >
@@ -253,54 +310,52 @@ export default function Signup() {
                 <option value="female">Femenino</option>
               </select>
             </div>
-          </div>
 
-          <div>
-            <label htmlFor="profile-picture" className="block text-sm font-medium text-gray-700">
-              Foto de perfil (Opcional)
-            </label>
-            <div className="mt-1 flex items-center">
-              {previewUrl ? (
-                <Image
-                  src={previewUrl || "/placeholder.svg"}
-                  alt="Vista previa del perfil"
-                  width={100}
-                  height={100}
-                  className="rounded-full"
-                />
-              ) : (
-                <span className="inline-block h-12 w-12 rounded-full overflow-hidden bg-gray-100">
-                  <svg className="h-full w-full text-gray-300" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M24 20.993V24H0v-2.996A14.977 14.977 0 0112.004 15c4.904 0 9.26 2.354 11.996 5.993zM16.002 8.999a4 4 0 11-8 0 4 4 0 018 0z" />
-                  </svg>
-                </span>
-              )}
-              <button
-                type="button"
-                className="ml-5 bg-white py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm leading-4 font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                Cambiar
-              </button>
+            <div className="space-y-2">
+              <label htmlFor="profile-picture" className="block text-sm font-medium">
+                Foto de perfil (Opcional)
+              </label>
+              <div className="mt-1 flex items-center">
+                {previewUrl ? (
+                  <div className="relative h-20 w-20 rounded-full overflow-hidden">
+                    <Image
+                      src={previewUrl || "/placeholder.svg"}
+                      alt="Vista previa del perfil"
+                      fill
+                      className="object-cover"
+                    />
+                  </div>
+                ) : (
+                  <span className="inline-block h-20 w-20 rounded-full overflow-hidden bg-gray-100">
+                    <svg className="h-full w-full text-gray-300" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M24 20.993V24H0v-2.996A14.977 14.977 0 0112.004 15c4.904 0 9.26 2.354 11.996 5.993zM16.002 8.999a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="ml-5 bg-white py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm leading-4 font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  Cambiar
+                </button>
+              </div>
+              <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
             </div>
-            <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
-            <p className="mt-1 text-xs text-gray-500">
-              Nota: La carga de la foto de perfil es opcional. Si encuentra algún problema, puede continuar sin ella y
-              añadirla más tarde.
-            </p>
-          </div>
 
-          <div>
-            <button
-              type="submit"
-              disabled={isUploading}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
-            >
+            <Button type="submit" disabled={isUploading} className="w-full">
               {isUploading ? "Creando cuenta..." : "Registrarse"}
-            </button>
-          </div>
-        </form>
-      </div>
+            </Button>
+
+            <div className="text-center text-sm">
+              ¿Ya tienes una cuenta?{" "}
+              <a href="/login" className="font-medium text-indigo-600 hover:text-indigo-500">
+                Iniciar sesión
+              </a>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   )
 }

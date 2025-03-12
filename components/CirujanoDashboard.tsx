@@ -15,6 +15,7 @@ import { CalendarIcon, Clock, Info, LogOut, User } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
+import HospitalLogo from "./HospitalLogo"
 
 interface CirujanoDashboardProps {
   hospitalId: string
@@ -44,6 +45,7 @@ export default function CirujanoDashboard({ hospitalId, hospitalName }: Cirujano
   const [activeTab, setActiveTab] = useState("calendar")
   const [mySurgeries, setMySurgeries] = useState<SurgeryData[]>([])
   const [loading, setLoading] = useState(true)
+  const [hospitalLogo, setHospitalLogo] = useState<string | undefined>(undefined)
 
   const handleLogout = async () => {
     try {
@@ -97,10 +99,20 @@ export default function CirujanoDashboard({ hospitalId, hospitalName }: Cirujano
           }),
         )) as SurgeryData[]
 
-        // Sort by date
-        surgeries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        // Sort by date (newest to oldest)
+        surgeries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
         setMySurgeries(surgeries)
+
+        // Fetch hospital logo
+        try {
+          const hospitalDoc = await getDoc(doc(db, "hospitals", hospitalId))
+          if (hospitalDoc.exists()) {
+            setHospitalLogo(hospitalDoc.data().logoUrl)
+          }
+        } catch (error) {
+          console.error("Error fetching hospital logo:", error)
+        }
       } catch (error) {
         console.error("Error fetching surgeries:", error)
       } finally {
@@ -139,12 +151,15 @@ export default function CirujanoDashboard({ hospitalId, hospitalName }: Cirujano
   return (
     <div className="space-y-6">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>Panel de Cirujano</CardTitle>
-            <CardDescription>Gestiona tus cirugías y consulta la disponibilidad de neurofisiólogos</CardDescription>
+        <CardHeader className="space-y-0 pb-2">
+          <div className="flex flex-col items-center">
+            <HospitalLogo logoUrl={hospitalLogo} hospitalName={hospitalName} size="3xl" className="mb-2" />
+            <CardTitle className="text-xl mb-0">Panel de Cirujano - {hospitalName}</CardTitle>
+            <CardDescription className="mt-0">
+              Gestiona tus cirugías y consulta la disponibilidad de neurofisiólogos
+            </CardDescription>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex justify-end items-center gap-4 mt-2">
             <div className="flex items-center gap-2">
               <User className="h-5 w-5 text-indigo-600" />
               <span className="font-medium">{userData?.name}</span>
@@ -264,6 +279,7 @@ export default function CirujanoDashboard({ hospitalId, hospitalName }: Cirujano
         hospitalId={hospitalId}
         hospitalName={hospitalName}
       />
+      {/* Removed the duplicate button here */}
     </div>
   )
 }

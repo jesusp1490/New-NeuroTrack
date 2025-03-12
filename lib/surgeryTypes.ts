@@ -1,17 +1,6 @@
-export interface SurgeryMaterial {
-  id: string
-  name: string
-  quantity: number
-  ref?: string // Código de referencia (opcional)
-}
+import type { SurgeryType } from "@/types"
 
-export interface SurgeryType {
-  id: string
-  name: string
-  estimatedDuration: number
-  materials: SurgeryMaterial[]
-}
-
+// Define surgery types with SurgeryMaterial[] for materials to match the type in types/index.ts
 export const surgeryTypes: SurgeryType[] = [
   {
     id: "tumores_tronco",
@@ -28,6 +17,8 @@ export const surgeryTypes: SurgeryType[] = [
       { id: "mat8", name: "Estimulador bipolar", quantity: 1, ref: "3601-00" },
       { id: "mat9", name: "Estimulador acústico", quantity: 1 },
     ],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   },
   {
     id: "tumor_medular",
@@ -40,6 +31,8 @@ export const surgeryTypes: SurgeryType[] = [
       { id: "mat3", name: "Electrodos subdérmicos", quantity: 2, ref: "003-400101" },
       { id: "mat10", name: "Electrodos epidurales de 3 contactos", quantity: 2, ref: "CEDL-3PDINX-6" },
     ],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   },
   {
     id: "tiroides",
@@ -55,6 +48,8 @@ export const surgeryTypes: SurgeryType[] = [
       { id: "mat12", name: "Alargaderas reutilizables", quantity: 2, ref: "019-431500" },
       { id: "mat13", name: "Puentes", quantity: 4 },
     ],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   },
   {
     id: "tumor_cerebral",
@@ -70,6 +65,8 @@ export const surgeryTypes: SurgeryType[] = [
       { id: "mat6", name: "Estimulador monopolar", quantity: 1, ref: "3602-00" },
       { id: "mat16", name: "Sonda aspirador", quantity: 1 },
     ],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   },
   {
     id: "nervio_periferico",
@@ -81,6 +78,8 @@ export const surgeryTypes: SurgeryType[] = [
       { id: "mat17", name: "Estimulador de gancho doble", quantity: 1 },
       { id: "mat18", name: "Estimulador de gancho triple", quantity: 1 },
     ],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   },
 ]
 

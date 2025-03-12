@@ -1,12 +1,12 @@
 "use client"
 
-import type React from "react"
+import React from "react"
 
 import { useState, useEffect, useCallback } from "react"
 import { format } from "date-fns"
 import { collection, query, where, getDocs } from "firebase/firestore"
 import { db } from "@/lib/firebase"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -18,6 +18,8 @@ import { Surgery, SurgeryType, User } from "@/types"
 import { bookSurgery, fetchSurgeryTypes } from "@/lib/surgeryService"
 import { surgeryTypes } from "@/lib/surgeryTypes"
 import { sendSurgeryNotificationEmails } from "@/lib/emailService"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Info } from "lucide-react"
 
 export interface SlotInfo {
   start: Date
@@ -67,6 +69,11 @@ export default function SurgeryBookingDialog({
   )
   const [selectedShiftIds, setSelectedShiftIds] = useState<string[]>([])
 
+  // New state for surgeons
+  const [availableSurgeons, setAvailableSurgeons] = useState<User[]>([])
+  const [selectedSurgeon, setSelectedSurgeon] = useState<string>("")
+  const [loadingSurgeons, setLoadingSurgeons] = useState(false)
+
   // Update estimated duration when surgery type changes
   useEffect(() => {
     if (surgeryType) {
@@ -100,6 +107,100 @@ export default function SurgeryBookingDialog({
 
     getSurgeryTypes()
   }, [propSurgeryTypes])
+
+  // Fetch available surgeons for the selected hospital and time
+  const fetchAvailableSurgeons = useCallback(
+    async (selectedDate: Date, selectedTime: string, endTime: string) => {
+      if (!hospitalId || !selectedDate) return
+
+      setLoadingSurgeons(true)
+      try {
+        // Convert selected times to Date objects
+        const [startHours, startMinutes] = selectedTime.split(":").map(Number)
+        const [endHours, endMinutes] = endTime.split(":").map(Number)
+
+        const startDateTime = new Date(selectedDate)
+        startDateTime.setHours(startHours, startMinutes, 0, 0)
+
+        const endDateTime = new Date(selectedDate)
+        endDateTime.setHours(endHours, endMinutes, 0, 0)
+
+        // Format date for Firestore query
+        const dateString = format(selectedDate, "yyyy-MM-dd")
+
+        // 1. Get all surgeons from this hospital
+        const usersRef = collection(db, "users")
+        const surgeonsQuery = query(usersRef, where("role", "==", "cirujano"), where("hospitalId", "==", hospitalId))
+
+        const surgeonsSnapshot = await getDocs(surgeonsQuery)
+
+        if (surgeonsSnapshot.empty) {
+          console.log("No surgeons found for this hospital")
+          setAvailableSurgeons([])
+          setError("No hay cirujanos disponibles en este hospital")
+          return
+        }
+
+        const surgeons = surgeonsSnapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        })) as User[]
+
+        console.log(`Found ${surgeons.length} surgeons for hospital ${hospitalId}`)
+
+        // 2. Check which surgeons are already booked during this time
+        const surgeriesRef = collection(db, "surgeries")
+        // Query surgeries for the selected date
+        const surgeriesQuery = query(
+          surgeriesRef,
+          where("hospitalId", "==", hospitalId),
+          where("status", "==", "scheduled"),
+        )
+
+        const surgeriesSnapshot = await getDocs(surgeriesQuery)
+
+        // Get IDs of surgeons who are already booked
+        const bookedSurgeonIds = new Set<string>()
+
+        surgeriesSnapshot.forEach((doc) => {
+          const surgery = doc.data() as Surgery
+          const surgeryDate = new Date(surgery.date)
+          const surgeryEndTime = new Date(surgeryDate.getTime() + surgery.estimatedDuration * 60000)
+
+          // Check if this surgery overlaps with the requested time
+          const overlaps =
+            (surgeryDate <= startDateTime && surgeryEndTime > startDateTime) || // Surgery starts before and ends after our start
+            (surgeryDate >= startDateTime && surgeryDate < endDateTime) // Surgery starts during our time slot
+
+          if (overlaps && surgery.surgeonId) {
+            bookedSurgeonIds.add(surgery.surgeonId)
+          }
+        })
+
+        console.log(`Found ${bookedSurgeonIds.size} surgeons already booked during this time`)
+
+        // Filter out booked surgeons
+        const availableSurgeons = surgeons.filter((surgeon) => !bookedSurgeonIds.has(surgeon.id))
+
+        setAvailableSurgeons(availableSurgeons)
+
+        // If there's only one available surgeon, select it automatically
+        if (availableSurgeons.length === 1) {
+          setSelectedSurgeon(availableSurgeons[0].id)
+        } else if (availableSurgeons.length === 0) {
+          setError("No hay cirujanos disponibles para esta fecha y hora")
+        } else {
+          setError("")
+        }
+      } catch (error) {
+        console.error("Error fetching available surgeons:", error)
+        setError("Error al verificar disponibilidad de cirujanos")
+      } finally {
+        setLoadingSurgeons(false)
+      }
+    },
+    [hospitalId],
+  )
 
   const checkAvailableNeurophysiologists = useCallback(
     async (selectedDate: Date, selectedTime: string) => {
@@ -183,11 +284,13 @@ export default function SurgeryBookingDialog({
     [hospitalId],
   )
 
+  // Update available resources when date or time changes
   useEffect(() => {
     if (date) {
       checkAvailableNeurophysiologists(date, time)
+      fetchAvailableSurgeons(date, time, endTime)
     }
-  }, [date, time, checkAvailableNeurophysiologists])
+  }, [date, time, endTime, checkAvailableNeurophysiologists, fetchAvailableSurgeons])
 
   // Update selected shift IDs when neurophysiologists selection changes
   useEffect(() => {
@@ -244,8 +347,16 @@ export default function SurgeryBookingDialog({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    // Validate required fields based on user role
     if (!date || selectedNeurophysiologists.length === 0 || !surgeryType || !patientName || !endTime) {
       setError("Por favor complete todos los campos requeridos")
+      return
+    }
+
+    // For admin and department head roles, require a surgeon selection
+    if ((userData.role === "administrativo" || userData.role === "jefe_departamento") && !selectedSurgeon) {
+      setError("Por favor seleccione un cirujano")
       return
     }
 
@@ -267,6 +378,9 @@ export default function SurgeryBookingDialog({
       // Update estimated duration based on selected end time
       setEstimatedDuration(durationMinutes.toString())
 
+      // Determine the surgeon ID based on user role
+      const surgeonId = userData.role === "cirujano" ? userData.id : selectedSurgeon
+
       // Create the surgery document with the shift ID reference
       const surgeryData: Partial<Surgery> = {
         date: surgeryDateTime.toISOString(),
@@ -277,10 +391,17 @@ export default function SurgeryBookingDialog({
         notes,
         hospitalId,
         status: "scheduled",
-        surgeonId: userData.id,
+        surgeonId,
         // Only include roomId if it's defined
         ...(selectedSlot?.resourceId ? { roomId: selectedSlot.resourceId } : {}),
         createdAt: new Date().toISOString(),
+        // Add the booker's information
+        bookedBy: {
+          id: userData.id,
+          name: userData.name,
+          role: userData.role,
+          email: userData.email,
+        },
       }
 
       console.log("Surgery data being submitted:", surgeryData)
@@ -291,7 +412,7 @@ export default function SurgeryBookingDialog({
       // Send notification emails
       if (result.success && result.surgeryId) {
         try {
-          await sendSurgeryNotificationEmails(result.surgeryId)
+          await sendSurgeryNotificationEmails(result.surgeryId, userData.id)
         } catch (emailError) {
           console.error("Error sending notification emails:", emailError)
           // Continue even if email sending fails
@@ -308,9 +429,12 @@ export default function SurgeryBookingDialog({
     }
   }
 
+  // Determine if we need to show the surgeon selector based on user role
+  const showSurgeonSelector = userData.role === "administrativo" || userData.role === "jefe_departamento"
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Programar Cirugía - {hospitalName}</DialogTitle>
         </DialogHeader>
@@ -368,6 +492,32 @@ export default function SurgeryBookingDialog({
               </SelectContent>
             </Select>
           </div>
+
+          {/* Surgeon selector for admin and department head roles */}
+          {showSurgeonSelector && (
+            <div className="space-y-2">
+              <Label htmlFor="surgeon">Cirujano</Label>
+              <Select
+                value={selectedSurgeon}
+                onValueChange={setSelectedSurgeon}
+                disabled={loadingSurgeons || availableSurgeons.length === 0}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={loadingSurgeons ? "Cargando cirujanos..." : "Seleccionar cirujano"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableSurgeons.map((surgeon) => (
+                    <SelectItem key={surgeon.id} value={surgeon.id}>
+                      {surgeon.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {availableSurgeons.length === 0 && !loadingSurgeons && (
+                <p className="text-sm text-red-500">No hay cirujanos disponibles para esta fecha y hora</p>
+              )}
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label>Neurofisiólogos Disponibles</Label>
@@ -441,21 +591,35 @@ export default function SurgeryBookingDialog({
             />
           </div>
 
-          {error && <p className="text-red-500 text-sm">{error}</p>}
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
 
-          <div className="flex justify-end gap-2">
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              Se enviará una notificación por correo electrónico a todos los involucrados en la cirugía.
+            </AlertDescription>
+          </Alert>
+
+          <DialogFooter className="sticky bottom-0 pt-2 bg-white border-t">
             <Button type="button" variant="outline" onClick={onClose}>
               Cancelar
             </Button>
             <Button
               type="submit"
               disabled={
-                isLoading || availableNeurophysiologists.length === 0 || selectedNeurophysiologists.length === 0
+                isLoading ||
+                availableNeurophysiologists.length === 0 ||
+                selectedNeurophysiologists.length === 0 ||
+                (showSurgeonSelector && !selectedSurgeon)
               }
             >
               {isLoading ? "Verificando..." : "Programar Cirugía"}
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

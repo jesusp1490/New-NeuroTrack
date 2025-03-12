@@ -10,13 +10,15 @@ import AdministrativoDashboard from "@/components/AdministrativoDashboard"
 import HospitalSelector from "@/components/HospitalSelector"
 import { doc, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
+// Import the debug component at the top
+// import HospitalDebug from "@/components/HospitalDebug"
 
 export default function Dashboard() {
   const { user, userData, loading } = useAuth()
   const router = useRouter()
   const [selectedHospitalId, setSelectedHospitalId] = useState<string>("")
   const [selectedHospitalName, setSelectedHospitalName] = useState<string>("")
-  const [availableHospitals, setAvailableHospitals] = useState<{ id: string; name: string }[]>([])
+  const [availableHospitals, setAvailableHospitals] = useState<{ id: string; name: string; logoUrl?: string }[]>([])
   const [isLoadingHospitals, setIsLoadingHospitals] = useState(true)
 
   // Redirect to login if not authenticated
@@ -75,6 +77,7 @@ export default function Dashboard() {
                 hospitals.push({
                   id: hospitalId,
                   name: hospitalDoc.data().name,
+                  logoUrl: hospitalDoc.data().logoUrl, // Make sure this line is present
                 })
               } else {
                 console.error("Hospital document does not exist:", hospitalId)
@@ -111,7 +114,11 @@ export default function Dashboard() {
             }
           }
         } else {
-          console.error("User has no assigned hospitals:", userData)
+          console.log("User has no assigned hospitals. Fetching only their assigned hospitals.")
+          // For users without specific assignments, don't fetch all hospitals
+          setAvailableHospitals([])
+          setSelectedHospitalId("")
+          setSelectedHospitalName("")
         }
       } catch (error) {
         console.error("Error in fetchHospitalDetails:", error)
@@ -157,15 +164,24 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 p-6">
-      <h1 className="text-2xl font-bold">Panel de Control</h1>
+      <h1 className="text-2xl font-bold">Dashbaord</h1>
 
-      {userData.role === "neurofisiologo" && (
+      {userData.role === "neurofisiologo" && availableHospitals.length > 0 && (
         <div className="mb-6">
           <HospitalSelector
             onHospitalChange={handleHospitalChange}
             defaultHospitalId={selectedHospitalId}
+            hospitals={availableHospitals}
             label="Seleccionar Hospital de Trabajo"
           />
+        </div>
+      )}
+
+      {userData.role === "neurofisiologo" && availableHospitals.length === 0 && (
+        <div className="p-4 border border-yellow-300 bg-yellow-50 rounded-md mb-6">
+          <p className="text-yellow-800">
+            No tiene hospitales asignados. Por favor, contacte al administrador para asignar hospitales a su cuenta.
+          </p>
         </div>
       )}
 
@@ -202,6 +218,9 @@ export default function Dashboard() {
           </p>
         </div>
       )}
+
+      {/* Add the debug component */}
+      {/* {process.env.NODE_ENV !== "production" && <HospitalDebug />} */}
     </div>
   )
 }

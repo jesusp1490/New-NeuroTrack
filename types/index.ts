@@ -65,37 +65,34 @@ export interface Surgery {
   date: string
   estimatedDuration: number
   status: "scheduled" | "completed" | "cancelled"
-  materials?: Array<{
-    id: string
-    name: string
-    quantity: number
-    ref?: string
-  }>
+  materials?: Array<SurgeryMaterial>
   notes?: string
   createdAt: string
   updatedAt: string
   shiftId?: string // Reference to the shift
   bookingId?: string // Reference to the booking if using that system
   additionalRecipients?: string[] // For sending notifications to additional emails
+  bookedBy?: {
+    id: string
+    name: string
+    role: string
+    email: string
+  }
+}
+
+export interface SurgeryMaterial {
+  id: string
+  name: string
+  quantity: number
+  ref?: string // Código de referencia (opcional)
 }
 
 export interface SurgeryType {
   id: string
   name: string
   estimatedDuration: number
+  materials: SurgeryMaterial[]
   description?: string
-  materials?: string[] // IDs of commonly used materials
-  createdAt?: string
-  updatedAt?: string
-}
-
-export interface SurgeryMaterial {
-  id: string
-  name: string
-  ref?: string
-  description?: string
-  stock?: number
-  unit?: string
   createdAt?: string
   updatedAt?: string
 }

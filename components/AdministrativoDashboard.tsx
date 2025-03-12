@@ -1,50 +1,58 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useAuth } from "@/app/context/AuthContext"
 import OperatingRoomCalendar from "./OperatingRoomCalendar"
 import SurgeryBookingDialog, { type SlotInfo } from "./SurgeryBookingDialog"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useAuth } from "@/app/context/AuthContext"
-import HospitalSelector from "./HospitalSelector"
 import { collection, query, where, getDocs, getDoc, doc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { Badge } from "@/components/ui/badge"
-import { CalendarIcon, Clock, LogOut, User } from "lucide-react"
+import { CalendarIcon, Clock, Info, LogOut, User, Plus } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
+import HospitalLogo from "./HospitalLogo"
 
 interface AdministrativoDashboardProps {
   hospitalId: string
   hospitalName: string
 }
 
+interface SurgeryData {
+  id: string
+  date: string
+  surgeryType: string
+  patientName: string
+  neurophysiologistNames?: string[]
+  status: string
+  estimatedDuration: number
+  hospitalId: string
+  surgeonId: string
+  surgeonName?: string
+  neurophysiologistIds?: string[]
+  neurophysiologistId?: string
+  bookedBy?: {
+    id: string
+    name: string
+    role: string
+    email: string
+  }
+}
+
 export default function AdministrativoDashboard({ hospitalId, hospitalName }: AdministrativoDashboardProps) {
   const { userData, logout } = useAuth()
   const router = useRouter()
-  const [isBookingDialogOpen, setIsBookingDialogOpen] = useState(false)
+  const [isBookingOpen, setIsBookingOpen] = useState(false)
   const [selectedSlot, setSelectedSlot] = useState<SlotInfo | undefined>(undefined)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [activeTab, setActiveTab] = useState("calendar")
-  const [selectedHospitalId, setSelectedHospitalId] = useState(hospitalId)
-  const [selectedHospitalName, setSelectedHospitalName] = useState(hospitalName)
-  const [allSurgeries, setAllSurgeries] = useState<
-    Array<{
-      id: string
-      date?: string
-      surgeryType?: string
-      patientName?: string
-      estimatedDuration?: number
-      status?: string
-      surgeonName: string
-      hospitalName: string
-      neurophysiologistNames: string[]
-      [key: string]: any // Allow any additional properties
-    }>
-  >([])
+  const [surgeries, setSurgeries] = useState<SurgeryData[]>([])
   const [loading, setLoading] = useState(true)
+  const [hospitalLogo, setHospitalLogo] = useState<string | undefined>(undefined)
 
   const handleLogout = async () => {
     try {
@@ -56,24 +64,16 @@ export default function AdministrativoDashboard({ hospitalId, hospitalName }: Ad
   }
 
   useEffect(() => {
-    const fetchAllSurgeries = async () => {
-      if (!userData?.id) return
+    const fetchSurgeries = async () => {
+      if (!hospitalId) return
 
       try {
         setLoading(true)
         const surgeriesRef = collection(db, "surgeries")
-        let surgeriesQuery
+        const q = query(surgeriesRef, where("hospitalId", "==", hospitalId))
 
-        if (selectedHospitalId === "all") {
-          // Fetch surgeries from all hospitals
-          surgeriesQuery = query(surgeriesRef)
-        } else {
-          // Fetch surgeries from the selected hospital
-          surgeriesQuery = query(surgeriesRef, where("hospitalId", "==", selectedHospitalId))
-        }
-
-        const querySnapshot = await getDocs(surgeriesQuery)
-        const surgeries = await Promise.all(
+        const querySnapshot = await getDocs(q)
+        const surgeriesData = (await Promise.all(
           querySnapshot.docs.map(async (docSnapshot) => {
             const surgeryData = docSnapshot.data()
 
@@ -90,57 +90,50 @@ export default function AdministrativoDashboard({ hospitalId, hospitalName }: Ad
               }
             }
 
-            // Get hospital name
-            let hospitalName = "Hospital desconocido"
-            if (surgeryData.hospitalId) {
-              try {
-                const hospitalDoc = await getDoc(doc(db, "hospitals", surgeryData.hospitalId))
-                if (hospitalDoc.exists()) {
-                  hospitalName = hospitalDoc.data().name
-                }
-              } catch (error) {
-                console.error("Error fetching hospital data:", error)
-              }
-            }
-
             // Get neurophysiologist names
             const neurophysiologistNames: string[] = []
             const neuroIds =
               surgeryData.neurophysiologistIds ||
               (surgeryData.neurophysiologistId ? [surgeryData.neurophysiologistId] : [])
 
-            for (const neuroId of neuroIds) {
-              try {
-                const userDocRef = doc(db, "users", neuroId)
-                const userDocSnapshot = await getDoc(userDocRef)
-                if (userDocSnapshot.exists()) {
-                  const userData = userDocSnapshot.data()
-                  neurophysiologistNames.push(userData.name || "No asignado")
+            if (neuroIds.length > 0) {
+              for (const neuroId of neuroIds) {
+                try {
+                  const userDocRef = doc(db, "users", neuroId)
+                  const userDocSnapshot = await getDoc(userDocRef)
+                  if (userDocSnapshot.exists()) {
+                    const userData = userDocSnapshot.data()
+                    neurophysiologistNames.push(userData.name || "No asignado")
+                  }
+                } catch (error) {
+                  console.error("Error fetching neurophysiologist:", error)
                 }
-              } catch (error) {
-                console.error("Error fetching neurophysiologist:", error)
               }
             }
 
-            // Use type assertion to ensure all required properties are included
             return {
               id: docSnapshot.id,
-              date: surgeryData.date || "",
-              surgeryType: surgeryData.surgeryType || "",
-              patientName: surgeryData.patientName || "",
-              estimatedDuration: surgeryData.estimatedDuration || 0,
-              status: surgeryData.status || "unknown",
+              ...surgeryData,
               surgeonName,
-              hospitalName,
               neurophysiologistNames,
-            } as const
+            }
           }),
-        )
+        )) as SurgeryData[]
 
-        // Sort by date
-        surgeries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        // Sort by date (newest to oldest)
+        surgeriesData.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
-        setAllSurgeries(surgeries)
+        setSurgeries(surgeriesData)
+
+        // Fetch hospital logo
+        try {
+          const hospitalDoc = await getDoc(doc(db, "hospitals", hospitalId))
+          if (hospitalDoc.exists()) {
+            setHospitalLogo(hospitalDoc.data().logoUrl)
+          }
+        } catch (error) {
+          console.error("Error fetching hospital logo:", error)
+        }
       } catch (error) {
         console.error("Error fetching surgeries:", error)
       } finally {
@@ -148,39 +141,46 @@ export default function AdministrativoDashboard({ hospitalId, hospitalName }: Ad
       }
     }
 
-    fetchAllSurgeries()
-  }, [userData?.id, selectedHospitalId, refreshTrigger])
+    fetchSurgeries()
+  }, [hospitalId, refreshTrigger])
 
-  const handleSelectSlot = (slotInfo: SlotInfo) => {
+  const handleOpenBooking = (slotInfo: SlotInfo) => {
     setSelectedSlot(slotInfo)
-    setIsBookingDialogOpen(true)
+    setIsBookingOpen(true)
   }
 
   const handleBookSurgery = () => {
     setSelectedSlot(undefined)
-    setIsBookingDialogOpen(true)
+    setIsBookingOpen(true)
+  }
+
+  const handleCloseBooking = () => {
+    setIsBookingOpen(false)
+    setSelectedSlot(undefined)
   }
 
   const handleBookingComplete = () => {
-    setIsBookingDialogOpen(false)
+    setIsBookingOpen(false)
     setSelectedSlot(undefined)
     setRefreshTrigger((prev) => prev + 1)
   }
 
-  const handleHospitalChange = (hospitalId: string, hospitalName: string) => {
-    setSelectedHospitalId(hospitalId)
-    setSelectedHospitalName(hospitalName)
+  if (!userData) {
+    return <div>Cargando datos del usuario...</div>
   }
 
   return (
     <div className="space-y-6">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>Panel Administrativo</CardTitle>
-            <CardDescription>Gestionar recursos hospitalarios y tareas administrativas</CardDescription>
+        <CardHeader className="space-y-0 pb-2">
+          <div className="flex flex-col items-center">
+            <HospitalLogo logoUrl={hospitalLogo} hospitalName={hospitalName} size="3xl" className="mb-2" />
+            <CardTitle className="text-xl mb-0">Panel Administrativo - {hospitalName}</CardTitle>
+            <CardDescription className="mt-0">
+              Gestione las cirugías y consulte la disponibilidad de neurofisiólogos y cirujanos
+            </CardDescription>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex justify-end items-center gap-4 mt-2">
             <div className="flex items-center gap-2">
               <User className="h-5 w-5 text-indigo-600" />
               <span className="font-medium">{userData?.name}</span>
@@ -192,53 +192,53 @@ export default function AdministrativoDashboard({ hospitalId, hospitalName }: Ad
           </div>
         </CardHeader>
         <CardContent>
-          <div className="mb-6">
-            <HospitalSelector
-              onHospitalChange={handleHospitalChange}
-              defaultHospitalId={selectedHospitalId}
-              showAllOption={true}
-            />
-          </div>
+          <Alert className="mb-4 bg-blue-50 border-blue-200">
+            <Info className="h-4 w-4 text-blue-500" />
+            <AlertDescription className="text-blue-700">
+              Como Personal Administrativo, puede programar cirugías seleccionando cirujanos y neurofisiólogos
+              disponibles.
+            </AlertDescription>
+          </Alert>
 
-          <Tabs defaultValue="calendar" value={activeTab} onValueChange={setActiveTab}>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="mb-4">
               <TabsTrigger value="calendar">Calendario</TabsTrigger>
               <TabsTrigger value="surgeries">Cirugías</TabsTrigger>
-              <TabsTrigger value="resources">Recursos</TabsTrigger>
-              <TabsTrigger value="reports">Informes</TabsTrigger>
             </TabsList>
+
             <TabsContent value="calendar">
-              {selectedHospitalId !== "all" ? (
-                <OperatingRoomCalendar
-                  hospitalId={selectedHospitalId}
-                  hospitalName={selectedHospitalName}
-                  onSelectSlot={handleSelectSlot}
-                  onBookSurgery={handleBookSurgery}
-                  refreshTrigger={refreshTrigger}
-                  userRole="administrativo"
-                />
-              ) : (
-                <div className="p-4 text-center bg-yellow-50 rounded-md border border-yellow-200">
-                  Por favor, seleccione un hospital específico para ver el calendario.
-                </div>
-              )}
+              <div className="flex justify-end mb-4">
+                <Button onClick={handleBookSurgery} className="bg-indigo-600 hover:bg-indigo-700">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Programar Cirugía
+                </Button>
+              </div>
+              <OperatingRoomCalendar
+                hospitalId={hospitalId}
+                hospitalName={hospitalName}
+                onSelectSlot={handleOpenBooking}
+                onBookSurgery={handleBookSurgery}
+                refreshTrigger={refreshTrigger}
+                userRole="administrativo"
+                userId={userData?.id}
+              />
             </TabsContent>
+
             <TabsContent value="surgeries">
               {loading ? (
                 <div className="text-center py-8">Cargando...</div>
-              ) : allSurgeries.length === 0 ? (
+              ) : surgeries.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">No hay cirugías programadas</div>
               ) : (
                 <div className="space-y-4">
-                  {allSurgeries.map((surgery) => (
+                  {surgeries.map((surgery) => (
                     <Card key={surgery.id} className="p-4">
                       <div className="flex justify-between items-start">
                         <div>
                           <h4 className="font-medium">{surgery.surgeryType}</h4>
                           <p className="text-sm text-gray-500">Paciente: {surgery.patientName}</p>
                           <p className="text-sm text-gray-500">Cirujano: {surgery.surgeonName}</p>
-                          <p className="text-sm text-gray-500">Hospital: {surgery.hospitalName}</p>
-                          {surgery.neurophysiologistNames && surgery.neurophysiologistNames.length > 0 && (
+                          {surgery.neurophysiologistNames && surgery.neurophysiologistNames.length > 0 ? (
                             <div>
                               <p className="text-sm text-gray-500 font-medium">
                                 {surgery.neurophysiologistNames.length === 1 ? "Neurofisiólogo:" : "Neurofisiólogos:"}
@@ -247,31 +247,42 @@ export default function AdministrativoDashboard({ hospitalId, hospitalName }: Ad
                                 <p className="text-sm text-gray-500">{surgery.neurophysiologistNames[0]}</p>
                               ) : (
                                 <ul className="text-sm text-gray-500 list-disc pl-5">
-                                  {surgery.neurophysiologistNames.map((name: string, index: number) => (
+                                  {surgery.neurophysiologistNames.map((name, index) => (
                                     <li key={index}>{name}</li>
                                   ))}
                                 </ul>
                               )}
                             </div>
+                          ) : (
+                            <p className="text-sm text-gray-500">Neurofisiólogo: No especificado</p>
                           )}
                           <div className="flex items-center mt-2 text-sm text-gray-500">
                             <CalendarIcon className="h-4 w-4 mr-1" />
-                            {surgery.date
-                              ? format(new Date(surgery.date), "d 'de' MMMM 'de' yyyy", {
-                                  locale: es,
-                                })
-                              : "Fecha no disponible"}
+                            {format(new Date(surgery.date), "d 'de' MMMM 'de' yyyy", {
+                              locale: es,
+                            })}
                           </div>
                           <div className="flex items-center mt-1 text-sm text-gray-500">
                             <Clock className="h-4 w-4 mr-1" />
-                            {surgery.date ? format(new Date(surgery.date), "h:mm a") : "Hora no disponible"}
-                            {surgery.date && surgery.estimatedDuration
-                              ? ` - ${format(
-                                  new Date(new Date(surgery.date).getTime() + surgery.estimatedDuration * 60000),
-                                  "h:mm a",
-                                )}`
-                              : ""}
+                            {format(new Date(surgery.date), "h:mm a")} -
+                            {format(
+                              new Date(new Date(surgery.date).getTime() + surgery.estimatedDuration * 60000),
+                              "h:mm a",
+                            )}
                           </div>
+                          {surgery.bookedBy && (
+                            <p className="text-xs text-gray-500 mt-2">
+                              Programada por: {surgery.bookedBy.name} (
+                              {surgery.bookedBy.role === "jefe_departamento"
+                                ? "Jefe de Departamento"
+                                : surgery.bookedBy.role === "administrativo"
+                                  ? "Personal Administrativo"
+                                  : surgery.bookedBy.role === "cirujano"
+                                    ? "Cirujano"
+                                    : "Neurofisiólogo"}
+                              )
+                            </p>
+                          )}
                         </div>
                         <Badge
                           variant={
@@ -296,27 +307,19 @@ export default function AdministrativoDashboard({ hospitalId, hospitalName }: Ad
                 </div>
               )}
             </TabsContent>
-            <TabsContent value="resources">
-              <div className="p-4 text-center">Funcionalidad de gestión de recursos próximamente</div>
-            </TabsContent>
-            <TabsContent value="reports">
-              <div className="p-4 text-center">Funcionalidad de informes próximamente</div>
-            </TabsContent>
           </Tabs>
         </CardContent>
       </Card>
 
-      {isBookingDialogOpen && userData && (
-        <SurgeryBookingDialog
-          isOpen={isBookingDialogOpen}
-          onClose={() => setIsBookingDialogOpen(false)}
-          onComplete={handleBookingComplete}
-          selectedSlot={selectedSlot}
-          userData={userData}
-          hospitalId={selectedHospitalId}
-          hospitalName={selectedHospitalName}
-        />
-      )}
+      <SurgeryBookingDialog
+        isOpen={isBookingOpen}
+        onClose={handleCloseBooking}
+        onComplete={handleBookingComplete}
+        selectedSlot={selectedSlot}
+        userData={userData}
+        hospitalId={hospitalId}
+        hospitalName={hospitalName}
+      />
     </div>
   )
 }
