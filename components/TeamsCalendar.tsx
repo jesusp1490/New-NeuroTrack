@@ -1,13 +1,16 @@
 "use client"
 
-import { useState, useRef } from "react"
-import { Calendar, momentLocalizer, Views } from "react-big-calendar"
+import React from "react"
+
+import { useState, useEffect } from "react"
+import { Calendar, Views, momentLocalizer } from "react-big-calendar"
 import moment from "moment"
 import "moment/locale/es"
 import "react-big-calendar/lib/css/react-big-calendar.css"
 import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 
+// Set up the localizer
 moment.locale("es")
 const localizer = momentLocalizer(moment)
 
@@ -20,143 +23,130 @@ interface Event {
   type?: "surgery" | "shift"
   status?: "scheduled" | "cancelled" | "completed"
   color?: string
-  booked?: boolean
   neurophysiologists?: Array<{ id: string; name: string }>
+  patientName?: string
+  booked?: boolean
+  style?: React.CSSProperties
 }
 
 interface TeamsCalendarProps {
   events: Event[]
   onEventClick: (event: Event) => void
-  onSlotClick: (date: Date) => void
+  onSlotClick: (slotInfo: Date) => void
   onNewMeeting: () => void
   userRole?: string
+  actualUserRole?: string
+  showNewSurgeryButton?: boolean // Add this prop to control button visibility from parent
 }
 
-export function TeamsCalendar({ events, onEventClick, onSlotClick, onNewMeeting, userRole }: TeamsCalendarProps) {
-  const [view, setView] = useState(Views.WEEK)
-  const [date, setDate] = useState(new Date())
-  const calendarRef = useRef<HTMLDivElement>(null)
+export function TeamsCalendar({
+  events,
+  onEventClick,
+  onSlotClick,
+  onNewMeeting,
+  userRole = "cirujano",
+  actualUserRole,
+  showNewSurgeryButton = true, // Default to true but let parent override
+}: TeamsCalendarProps) {
+  const [calendarEvents, setCalendarEvents] = useState<any[]>([])
 
-  // Custom event styling
-  const eventStyleGetter = (event: Event) => {
-    let backgroundColor = "#3174ad" // Default blue
-    const textColor = "white"
-    let borderColor = "#2c6aa0"
-
-    if (event.type === "shift") {
-      if (event.booked) {
-        backgroundColor = "#9CA3AF" // Gray for booked shifts
-        borderColor = "#6B7280"
-      } else {
-        backgroundColor = "#10B981" // Green for available shifts
-        borderColor = "#059669"
-      }
-    } else if (event.type === "surgery") {
-      if (event.status === "cancelled") {
-        backgroundColor = "#EF4444" // Red for cancelled
-        borderColor = "#DC2626"
-      } else if (event.status === "completed") {
-        backgroundColor = "#6366F1" // Indigo for completed
-        borderColor = "#4F46E5"
-      }
-    }
-
-    return {
+  useEffect(() => {
+    const transformedEvents = events.map((event) => ({
+      ...event,
+      title: event.title,
       style: {
-        backgroundColor,
-        color: textColor,
-        borderColor,
+        backgroundColor:
+          event.type === "surgery"
+            ? event.status === "cancelled"
+              ? "#FDA4AF"
+              : "#93C5FD"
+            : event.booked
+              ? "#D1D5DB"
+              : "#86EFAC",
         borderRadius: "4px",
-        opacity: 1,
-        display: "block",
-        padding: "2px 5px",
+        color: "#1F2937",
+        border: "none",
       },
-    }
+    }))
+
+    setCalendarEvents(transformedEvents)
+  }, [events])
+
+  const handleEventClick = (event: Event) => {
+    onEventClick(event)
   }
 
-  // Custom toolbar to match Teams style
-  const CustomToolbar = ({ label, onNavigate, onView }: any) => {
-    return (
-      <div className="flex justify-between items-center mb-4 p-2">
-        <div className="flex items-center space-x-2">
-          <Button variant="outline" onClick={() => onNavigate("TODAY")}>
-            Hoy
-          </Button>
-          <Button variant="ghost" onClick={() => onNavigate("PREV")}>
-            &lt;
-          </Button>
-          <Button variant="ghost" onClick={() => onNavigate("NEXT")}>
-            &gt;
-          </Button>
-          <span className="text-lg font-medium">{label}</span>
-        </div>
-        <div className="flex items-center space-x-2">
-          <Button variant="outline" onClick={() => onView("day")}>
-            Día
-          </Button>
-          <Button variant="outline" onClick={() => onView("week")}>
-            Semana
-          </Button>
-          <Button variant="outline" onClick={() => onView("month")}>
-            Mes
-          </Button>
-          {/* Only show the button for cirujano, jefe_departamento, and administrativo roles */}
-          {(userRole === "cirujano" || userRole === "jefe_departamento" || userRole === "administrativo") && (
-            <Button onClick={onNewMeeting} className="bg-indigo-600 hover:bg-indigo-700">
-              <Plus className="h-4 w-4 mr-2" />
-              Programar Cirugía
-            </Button>
-          )}
-        </div>
-      </div>
-    )
+  const handleSlotClick = (slotInfo: any) => {
+    onSlotClick(slotInfo.start)
   }
 
-  // Format event titles to include attendees
-  const formats = {
-    eventTimeRangeFormat: () => {
-      return ""
-    },
-  }
+  // Only show the button if explicitly allowed by parent and user has correct role
+  const shouldShowButton =
+    showNewSurgeryButton &&
+    (actualUserRole === "cirujano" || actualUserRole === "administrativo" || actualUserRole === "jefe_departamento")
 
   return (
-    <div ref={calendarRef} className="h-[600px]">
-      <Calendar
-        localizer={localizer}
-        events={events}
-        startAccessor="start"
-        endAccessor="end"
-        style={{ height: "100%" }}
-        views={["month", "week", "day"]}
-        defaultView={Views.WEEK}
-        view={view}
-        date={date}
-        onView={(newView) => setView(newView as any)}
-        onNavigate={(newDate) => setDate(newDate)}
-        selectable
-        onSelectEvent={(event) => onEventClick(event)}
-        onSelectSlot={({ start }) => onSlotClick(start as Date)}
-        eventPropGetter={eventStyleGetter}
-        components={{
-          toolbar: CustomToolbar,
-        }}
-        formats={formats}
-        messages={{
-          today: "Hoy",
-          previous: "Anterior",
-          next: "Siguiente",
-          month: "Mes",
-          week: "Semana",
-          day: "Día",
-          agenda: "Agenda",
-          date: "Fecha",
-          time: "Hora",
-          event: "Evento",
-          noEventsInRange: "No hay eventos en este rango",
-        }}
-        min={new Date(new Date().setHours(8, 0, 0))}
-        max={new Date(new Date().setHours(20, 0, 0))}
-      />
+    <div className="h-[600px] flex flex-col">
+      {shouldShowButton && (
+        <div className="mb-4 flex justify-end">
+          <Button onClick={onNewMeeting} className="flex items-center gap-2">
+            <Plus className="h-4 w-4" />
+            <span>Nueva Cirugía</span>
+          </Button>
+        </div>
+      )}
+      <div className="flex-1 bg-white rounded-lg shadow-sm overflow-hidden">
+        <Calendar
+          localizer={localizer}
+          events={calendarEvents}
+          startAccessor="start"
+          endAccessor="end"
+          style={{ height: "100%" }}
+          views={[Views.WEEK, Views.DAY]}
+          defaultView={Views.WEEK}
+          onSelectEvent={handleEventClick}
+          onSelectSlot={handleSlotClick}
+          selectable
+          popup
+          eventPropGetter={(event: any) => ({
+            style: event.style,
+          })}
+          formats={{
+            dayHeaderFormat: (date: Date) => moment(date).format("dddd, D [de] MMMM"),
+            dayRangeHeaderFormat: ({ start, end }: { start: Date; end: Date }) =>
+              `${moment(start).format("D [de] MMMM")} - ${moment(end).format("D [de] MMMM")}`,
+          }}
+          messages={{
+            today: "Hoy",
+            previous: "Anterior",
+            next: "Siguiente",
+            month: "Mes",
+            week: "Semana",
+            day: "Día",
+            agenda: "Agenda",
+            date: "Fecha",
+            time: "Hora",
+            event: "Evento",
+            noEventsInRange: "No hay eventos en este rango",
+          }}
+          components={{
+            event: (props) => {
+              const { event } = props
+              return (
+                <div className="p-1 overflow-hidden">
+                  <div className="font-medium text-xs truncate">{event.title}</div>
+                  {event.patientName && <div className="text-xs truncate">Paciente: {event.patientName}</div>}
+                  {event.neurophysiologists && event.neurophysiologists.length > 0 && (
+                    <div className="text-xs truncate">
+                      Neurofisiólogos: {event.neurophysiologists.map((n) => n.name).join(", ")}
+                    </div>
+                  )}
+                </div>
+              )
+            },
+          }}
+        />
+      </div>
     </div>
   )
 }

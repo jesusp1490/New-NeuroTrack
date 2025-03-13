@@ -6,6 +6,8 @@ import { Label } from "@/components/ui/label"
 import { collection, getDocs } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import HospitalLogo from "./HospitalLogo"
+import { useAuth } from "@/app/context/AuthContext"
+import { saveSelectedHospital, getSelectedHospital } from "@/lib/hospitalStorage"
 
 export interface HospitalSelectorProps {
   onHospitalChange: (hospitalId: string, hospitalName: string) => void
@@ -26,15 +28,43 @@ export default function HospitalSelector({
   const [selectedHospital, setSelectedHospital] = useState<string>(defaultHospitalId || "")
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const { userData } = useAuth() // Get user data to check role
 
+  // Check if user is an admin type that can access all hospitals
+  const isAdminUser = userData?.role === "administrativo" || userData?.role === "jefe_departamento"
+
+  // Update the handleHospitalChange function to use the utility
+  const handleHospitalChange = (value: string) => {
+    setSelectedHospital(value)
+    const selectedHospitalData = hospitals.find((h) => h.id === value)
+    if (selectedHospitalData) {
+      // Log the change for debugging
+      console.log(`Hospital changed to: ${value} (${selectedHospitalData.name})`)
+
+      // Store the selected hospital in localStorage for persistence
+      saveSelectedHospital(value, selectedHospitalData.name)
+
+      onHospitalChange(value, selectedHospitalData.name)
+    }
+  }
+
+  // Update the useEffect to check localStorage first
   useEffect(() => {
     // If hospitals are provided as props, use them
     if (propHospitals && propHospitals.length > 0) {
       setHospitals(propHospitals)
       setIsLoading(false)
 
-      // If a default hospital ID is provided and it exists in the provided hospitals, select it
-      if (defaultHospitalId) {
+      // First check localStorage for a saved hospital
+      const savedHospital = getSelectedHospital()
+
+      if (savedHospital && propHospitals.some((h) => h.id === savedHospital.id)) {
+        console.log(`Using saved hospital from localStorage: ${savedHospital.id} (${savedHospital.name})`)
+        setSelectedHospital(savedHospital.id)
+        onHospitalChange(savedHospital.id, savedHospital.name)
+      }
+      // If no saved hospital or it doesn't exist in the list, use default or first
+      else if (defaultHospitalId) {
         const defaultHospital = propHospitals.find((h) => h.id === defaultHospitalId)
         if (defaultHospital) {
           setSelectedHospital(defaultHospitalId)
@@ -71,10 +101,22 @@ export default function HospitalSelector({
           return
         }
 
+        // Store all hospitals
         setHospitals(hospitalsData)
 
-        // If a default hospital ID is provided and it exists in the fetched hospitals, select it
-        if (defaultHospitalId) {
+        // For debugging
+        console.log(`Fetched ${hospitalsData.length} hospitals. User role: ${userData?.role}`)
+
+        // First check localStorage for a saved hospital
+        const savedHospital = getSelectedHospital()
+
+        if (savedHospital && hospitalsData.some((h) => h.id === savedHospital.id)) {
+          console.log(`Using saved hospital from localStorage: ${savedHospital.id} (${savedHospital.name})`)
+          setSelectedHospital(savedHospital.id)
+          onHospitalChange(savedHospital.id, savedHospital.name)
+        }
+        // If no saved hospital or it doesn't exist in the list, use default or first
+        else if (defaultHospitalId) {
           const defaultHospital = hospitalsData.find((h) => h.id === defaultHospitalId)
           if (defaultHospital) {
             setSelectedHospital(defaultHospitalId)
@@ -99,15 +141,7 @@ export default function HospitalSelector({
     }
 
     fetchHospitals()
-  }, [defaultHospitalId, onHospitalChange, propHospitals])
-
-  const handleHospitalChange = (value: string) => {
-    setSelectedHospital(value)
-    const selectedHospitalData = hospitals.find((h) => h.id === value)
-    if (selectedHospitalData) {
-      onHospitalChange(value, selectedHospitalData.name)
-    }
-  }
+  }, [defaultHospitalId, onHospitalChange, propHospitals, userData?.role])
 
   const getSelectedHospitalLogo = () => {
     const hospital = hospitals.find((h) => h.id === selectedHospital)

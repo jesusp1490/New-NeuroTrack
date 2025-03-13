@@ -5,6 +5,8 @@ import { db } from "@/lib/firebase"
 import { Shift, Surgery } from "@/types"
 import { TeamsCalendar } from "./TeamsCalendar"
 import { SlotInfo } from "./SurgeryBookingDialog"
+import { useAuth } from "@/app/context/AuthContext" // Import useAuth to check user role
+import { getSelectedHospital } from "@/lib/hospitalStorage"
 
 interface Props {
   hospitalId: string
@@ -45,10 +47,41 @@ export default function OperatingRoomCalendar({
 }: Props) {
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const { userData } = useAuth() // Get user data to check role
 
+  // Check if user is an admin type that can access all hospitals
+  const isAdminUser = userData?.role === "administrativo" || userData?.role === "jefe_departamento"
+
+  // Add a useEffect to check for hospital changes from localStorage
+  useEffect(() => {
+    // Check if the current hospitalId matches the one in localStorage
+    const savedHospital = getSelectedHospital()
+
+    if (savedHospital && savedHospital.id !== hospitalId && isAdminUser) {
+      console.log(`Hospital mismatch detected. Current: ${hospitalId}, Saved: ${savedHospital.id}`)
+      // We don't directly update here as it could cause loops
+      // Instead, we'll log this for debugging
+    }
+  }, [hospitalId, isAdminUser])
+
+  // Update the fetchEvents function to check localStorage for admin users
   const fetchEvents = useCallback(async () => {
-    if (!hospitalId) return
+    if (!hospitalId) {
+      console.log("No hospital ID provided, cannot fetch events")
+      return
+    }
+
+    // For admin users, check if there's a saved hospital in localStorage
+    const isAdminUser = userData?.role === "administrativo" || userData?.role === "jefe_departamento"
+    const savedHospital = isAdminUser ? getSelectedHospital() : null
+    const effectiveHospitalId = isAdminUser && savedHospital ? savedHospital.id : hospitalId
+
+    if (isAdminUser && savedHospital && savedHospital.id !== hospitalId) {
+      console.log(`Using saved hospital ID from localStorage: ${savedHospital.id} instead of ${hospitalId}`)
+    }
+
     setIsLoading(true)
+    console.log(`Fetching events for hospital: ${effectiveHospitalId}, userRole: ${userRole}, userId: ${userId}`)
 
     try {
       // Fetch surgeries
@@ -56,15 +89,19 @@ export default function OperatingRoomCalendar({
       let surgeriesQuery
 
       if (userRole === "cirujano" && userId) {
-        surgeriesQuery = query(surgeriesRef, where("hospitalId", "==", hospitalId), where("surgeonId", "==", userId))
+        surgeriesQuery = query(
+          surgeriesRef,
+          where("hospitalId", "==", effectiveHospitalId),
+          where("surgeonId", "==", userId),
+        )
       } else if (userRole === "neurofisiologo" && userId) {
         surgeriesQuery = query(
           surgeriesRef,
-          where("hospitalId", "==", hospitalId),
+          where("hospitalId", "==", effectiveHospitalId),
           where("neurophysiologistIds", "array-contains", userId),
         )
       } else {
-        surgeriesQuery = query(surgeriesRef, where("hospitalId", "==", hospitalId))
+        surgeriesQuery = query(surgeriesRef, where("hospitalId", "==", effectiveHospitalId))
       }
 
       const surgeriesSnapshot = await getDocs(surgeriesQuery)
@@ -116,11 +153,11 @@ export default function OperatingRoomCalendar({
       if (userRole === "neurofisiologo" && userId) {
         shiftsQuery = query(
           shiftsRef,
-          where("hospitalId", "==", hospitalId),
+          where("hospitalId", "==", effectiveHospitalId),
           where("neurophysiologistId", "==", userId),
         )
       } else {
-        shiftsQuery = query(shiftsRef, where("hospitalId", "==", hospitalId))
+        shiftsQuery = query(shiftsRef, where("hospitalId", "==", effectiveHospitalId))
       }
 
       const shiftsSnapshot = await getDocs(shiftsQuery)
@@ -208,6 +245,9 @@ export default function OperatingRoomCalendar({
         }
       })
 
+      console.log(
+        `Fetched ${surgeryEvents.length} surgeries and ${shiftEvents.length} shifts for hospital ${effectiveHospitalId}`,
+      )
       setEvents([...shiftEvents, ...surgeryEvents]) // Put shifts first so surgeries render on top
     } catch (error) {
       console.error("Error fetching events:", error)
@@ -215,11 +255,14 @@ export default function OperatingRoomCalendar({
     } finally {
       setIsLoading(false)
     }
-  }, [hospitalId, userRole, userId])
+  }, [hospitalId, userRole, userId, userData])
 
   useEffect(() => {
-    fetchEvents()
-  }, [fetchEvents, hospitalId, userRole, userId]) // Removed refreshTrigger
+    if (hospitalId) {
+      console.log(`Hospital ID changed to ${hospitalId}, refreshing events`)
+      fetchEvents()
+    }
+  }, [fetchEvents, hospitalId, refreshTrigger])
 
   const handleSlotClick = (date: Date) => {
     // Create a dialog to select duration or end time
@@ -253,6 +296,9 @@ export default function OperatingRoomCalendar({
       onSlotClick={handleSlotClick}
       onNewMeeting={onBookSurgery}
       userRole={userRole}
+      actualUserRole={userData?.role}
+      // Completely disable the button in TeamsCalendar
+      showNewSurgeryButton={false}
     />
   )
 }

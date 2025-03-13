@@ -20,6 +20,7 @@ import { surgeryTypes } from "@/lib/surgeryTypes"
 import { sendSurgeryNotificationEmails } from "@/lib/emailService"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Info } from "lucide-react"
+import { getSelectedHospital } from "@/lib/hospitalStorage"
 
 export interface SlotInfo {
   start: Date
@@ -51,6 +52,16 @@ export default function SurgeryBookingDialog({
   hospitalName,
   surgeryTypes: propSurgeryTypes,
 }: Props) {
+  // For admin users, check if there's a saved hospital in localStorage
+  const isAdminUser = userData?.role === "administrativo" || userData?.role === "jefe_departamento"
+  const savedHospital = isAdminUser ? getSelectedHospital() : null
+  const effectiveHospitalId = isAdminUser && savedHospital ? savedHospital.id : hospitalId
+  const effectiveHospitalName = isAdminUser && savedHospital ? savedHospital.name : hospitalName
+
+  if (isAdminUser && savedHospital && savedHospital.id !== hospitalId) {
+    console.log(`Using saved hospital from localStorage: ${savedHospital.id} (${savedHospital.name})`)
+  }
+
   const [date, setDate] = useState<Date | undefined>(selectedSlot?.start)
   const [time, setTime] = useState(selectedSlot ? format(selectedSlot.start, "HH:mm") : "09:00")
   const [endTime, setEndTime] = useState(
@@ -111,7 +122,7 @@ export default function SurgeryBookingDialog({
   // Fetch available surgeons for the selected hospital and time
   const fetchAvailableSurgeons = useCallback(
     async (selectedDate: Date, selectedTime: string, endTime: string) => {
-      if (!hospitalId || !selectedDate) return
+      if (!effectiveHospitalId || !selectedDate) return
 
       setLoadingSurgeons(true)
       try {
@@ -130,7 +141,11 @@ export default function SurgeryBookingDialog({
 
         // 1. Get all surgeons from this hospital
         const usersRef = collection(db, "users")
-        const surgeonsQuery = query(usersRef, where("role", "==", "cirujano"), where("hospitalId", "==", hospitalId))
+        const surgeonsQuery = query(
+          usersRef,
+          where("role", "==", "cirujano"),
+          where("hospitalId", "==", effectiveHospitalId),
+        )
 
         const surgeonsSnapshot = await getDocs(surgeonsQuery)
 
@@ -146,14 +161,14 @@ export default function SurgeryBookingDialog({
           ...doc.data(),
         })) as User[]
 
-        console.log(`Found ${surgeons.length} surgeons for hospital ${hospitalId}`)
+        console.log(`Found ${surgeons.length} surgeons for hospital ${effectiveHospitalId}`)
 
         // 2. Check which surgeons are already booked during this time
         const surgeriesRef = collection(db, "surgeries")
         // Query surgeries for the selected date
         const surgeriesQuery = query(
           surgeriesRef,
-          where("hospitalId", "==", hospitalId),
+          where("hospitalId", "==", effectiveHospitalId),
           where("status", "==", "scheduled"),
         )
 
@@ -199,7 +214,7 @@ export default function SurgeryBookingDialog({
         setLoadingSurgeons(false)
       }
     },
-    [hospitalId],
+    [effectiveHospitalId],
   )
 
   const checkAvailableNeurophysiologists = useCallback(
@@ -220,7 +235,7 @@ export default function SurgeryBookingDialog({
         const shiftsRef = collection(db, "shifts")
         const shiftsQuery = query(
           shiftsRef,
-          where("hospitalId", "==", hospitalId),
+          where("hospitalId", "==", effectiveHospitalId),
           where("date", "==", format(selectedDate, "yyyy-MM-dd")),
           where("type", "==", shiftType),
           where("booked", "==", false),
@@ -281,7 +296,7 @@ export default function SurgeryBookingDialog({
         setIsLoading(false)
       }
     },
-    [hospitalId],
+    [effectiveHospitalId],
   )
 
   // Update available resources when date or time changes
@@ -312,7 +327,7 @@ export default function SurgeryBookingDialog({
             const shiftsRef = collection(db, "shifts")
             const shiftsQuery = query(
               shiftsRef,
-              where("hospitalId", "==", hospitalId),
+              where("hospitalId", "==", effectiveHospitalId),
               where("date", "==", format(date, "yyyy-MM-dd")),
               where("type", "==", shiftType),
               where("neurophysiologistId", "==", neuroId),
@@ -335,7 +350,7 @@ export default function SurgeryBookingDialog({
 
       updateShiftIds()
     }
-  }, [selectedNeurophysiologists, date, time, hospitalId, availableNeurophysiologists])
+  }, [selectedNeurophysiologists, date, time, hospitalId, availableNeurophysiologists, effectiveHospitalId])
 
   const handleNeurophysiologistChange = (neuroId: string, isChecked: boolean) => {
     if (isChecked) {
@@ -389,7 +404,7 @@ export default function SurgeryBookingDialog({
         patientName,
         estimatedDuration: Number.parseInt(estimatedDuration),
         notes,
-        hospitalId,
+        hospitalId: effectiveHospitalId,
         status: "scheduled",
         surgeonId,
         // Only include roomId if it's defined
@@ -436,7 +451,7 @@ export default function SurgeryBookingDialog({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Programar Cirugía - {hospitalName}</DialogTitle>
+          <DialogTitle>Programar Cirugía - {effectiveHospitalName}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
