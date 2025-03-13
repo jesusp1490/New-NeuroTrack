@@ -7,8 +7,8 @@ import { TeamsCalendar } from "./TeamsCalendar"
 import { SlotInfo } from "./SurgeryBookingDialog"
 import { useAuth } from "@/app/context/AuthContext"
 import { getSelectedHospital } from "@/lib/hospitalStorage"
-import { format, startOfWeek, endOfWeek } from "date-fns"
-import { Views, View } from "react-big-calendar" // Fix: Import View type
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns"
+import { Views, View } from "react-big-calendar"
 
 interface Props {
   hospitalId: string
@@ -51,7 +51,7 @@ export default function OperatingRoomCalendar({
   const [isLoading, setIsLoading] = useState(true)
   const { userData } = useAuth()
   const [currentDate, setCurrentDate] = useState(new Date())
-  const [currentView, setCurrentView] = useState<View>(Views.WEEK) // Fix: Use View type
+  const [currentView, setCurrentView] = useState<View>(Views.WEEK)
 
   // Check if user is an admin type that can access all hospitals
   const isAdminUser = userData?.role === "administrativo" || userData?.role === "jefe_departamento"
@@ -97,6 +97,10 @@ export default function OperatingRoomCalendar({
           startDate.setHours(0, 0, 0, 0)
           endDate = new Date(date)
           endDate.setHours(23, 59, 59, 999)
+        } else if (view === Views.MONTH) {
+          // For month view, get the entire month
+          startDate = startOfMonth(date)
+          endDate = endOfMonth(date)
         } else {
           // Default to week view
           startDate = startOfWeek(date, { weekStartsOn: 1 }) // Start on Monday
@@ -106,6 +110,8 @@ export default function OperatingRoomCalendar({
         // Format dates for Firestore queries
         const startDateStr = format(startDate, "yyyy-MM-dd")
         const endDateStr = format(endDate, "yyyy-MM-dd")
+
+        console.log(`Date range: ${startDateStr} to ${endDateStr} for view: ${view}`)
 
         // Fetch surgeries
         const surgeriesRef = collection(db, "surgeries")

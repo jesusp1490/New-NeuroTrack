@@ -36,12 +36,12 @@ interface TeamsCalendarProps {
   onSlotClick: (slotInfo: Date) => void
   onNewMeeting: () => void
   onShiftClick?: (start: Date, end: Date, shiftIds?: string[]) => void
-  onNavigate?: (date: Date, view: View) => void // Fix: Use View type
+  onNavigate?: (date: Date, view: View) => void
   userRole?: string
   actualUserRole?: string
   showNewSurgeryButton?: boolean
   initialDate?: Date
-  initialView?: View // Fix: Use View type
+  initialView?: View
 }
 
 export function TeamsCalendar({
@@ -58,7 +58,7 @@ export function TeamsCalendar({
   initialView = Views.WEEK,
 }: TeamsCalendarProps) {
   const [calendarEvents, setCalendarEvents] = useState<any[]>([])
-  const [view, setView] = useState<View>(initialView) // Fix: Use View type
+  const [view, setView] = useState<View>(initialView)
   const [currentDate, setCurrentDate] = useState(initialDate)
 
   useEffect(() => {
@@ -165,7 +165,7 @@ export function TeamsCalendar({
           startAccessor="start"
           endAccessor="end"
           style={{ height: "100%" }}
-          views={[Views.WEEK, Views.DAY]}
+          views={[Views.MONTH, Views.WEEK, Views.DAY]}
           view={view}
           date={currentDate}
           onView={handleViewChange}
@@ -181,6 +181,7 @@ export function TeamsCalendar({
             dayHeaderFormat: (date: Date) => moment(date).format("dddd, D [de] MMMM"),
             dayRangeHeaderFormat: ({ start, end }: { start: Date; end: Date }) =>
               `${moment(start).format("D [de] MMMM")} - ${moment(end).format("D [de] MMMM")}`,
+            monthHeaderFormat: (date: Date) => moment(date).format("MMMM YYYY"),
           }}
           messages={{
             today: "Hoy",
@@ -194,6 +195,7 @@ export function TeamsCalendar({
             time: "Hora",
             event: "Evento",
             noEventsInRange: "No hay eventos en este rango",
+            showMore: (total) => `+ Ver ${total} más`,
           }}
           components={{
             event: (props) => {
@@ -201,8 +203,10 @@ export function TeamsCalendar({
               return (
                 <div className="p-1 overflow-hidden">
                   <div className="font-medium text-xs truncate">{event.title}</div>
-                  {event.patientName && <div className="text-xs truncate">Paciente: {event.patientName}</div>}
-                  {event.neurophysiologists && event.neurophysiologists.length > 0 && (
+                  {event.patientName && view !== Views.MONTH && (
+                    <div className="text-xs truncate">Paciente: {event.patientName}</div>
+                  )}
+                  {event.neurophysiologists && event.neurophysiologists.length > 0 && view !== Views.MONTH && (
                     <div className="text-xs truncate">
                       Neurofisiólogos: {event.neurophysiologists.map((n) => n.name).join(", ")}
                     </div>

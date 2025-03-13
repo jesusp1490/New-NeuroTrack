@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, getDoc } from "firebase/firestore"
+import { addDoc, collection, doc, getDoc, query, where, getDocs } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import type { Surgery, User, Hospital } from "@/types"
 import { jsPDF } from "jspdf"
@@ -108,16 +108,16 @@ export async function sendSurgeryNotificationEmails(
     let materialsHtml = ""
     if (surgery.materials && surgery.materials.length > 0) {
       materialsHtml = `
-        <p><strong>Materials Required:</strong></p>
-        <ul>
-          ${surgery.materials
-            .map(
-              (material) =>
-                `<li>${material.name} (${material.quantity}) ${material.ref ? `- Ref: ${material.ref}` : ""}</li>`,
-            )
-            .join("")}
-        </ul>
-      `
+       <p><strong>Materials Required:</strong></p>
+       <ul>
+         ${surgery.materials
+           .map(
+             (material) =>
+               `<li>${material.name} (${material.quantity}) ${material.ref ? `- Ref: ${material.ref}` : ""}</li>`,
+           )
+           .join("")}
+       </ul>
+     `
     }
 
     // Generate PDF attachment
@@ -130,22 +130,22 @@ export async function sendSurgeryNotificationEmails(
         from: { name: "NeuroTrack", email: "nukedev.jp@gmail.com" },
         subject: `Confirmación de Cirugía - ${surgery.patientName}`,
         html: `
-          <h1>Confirmación de Cirugía</h1>
-          <p>Estimado/a Dr. ${surgeon.name},</p>
-          <p>Su cirugía para el paciente ${surgery.patientName} ha sido programada exitosamente.</p>
-          <p><strong>Detalles:</strong></p>
-          <ul>
-            <li>Hospital: ${hospital.name}</li>
-            <li>Fecha: ${surgeryDate}</li>
-            <li>Hora: ${startTime} - ${endTime} (Estimado)</li>
-            <li>Tipo de Cirugía: ${surgery.surgeryType}</li>
-            <li>Neurofisiólogos: ${neurophysiologists.map((n) => `Dr. ${n.name}`).join(", ")}</li>
-            <li>Estado: ${surgery.status}</li>
-          </ul>
-          ${materialsHtml}
-          ${surgery.notes ? `<p><strong>Notas:</strong> ${surgery.notes}</p>` : ""}
-          <p>Gracias por usar NeuroTrack.</p>
-        `,
+         <h1>Confirmación de Cirugía</h1>
+         <p>Estimado/a Dr. ${surgeon.name},</p>
+         <p>Su cirugía para el paciente ${surgery.patientName} ha sido programada exitosamente.</p>
+         <p><strong>Detalles:</strong></p>
+         <ul>
+           <li>Hospital: ${hospital.name}</li>
+           <li>Fecha: ${surgeryDate}</li>
+           <li>Hora: ${startTime} - ${endTime} (Estimado)</li>
+           <li>Tipo de Cirugía: ${surgery.surgeryType}</li>
+           <li>Neurofisiólogos: ${neurophysiologists.map((n) => `Dr. ${n.name}`).join(", ")}</li>
+           <li>Estado: ${surgery.status}</li>
+         </ul>
+         ${materialsHtml}
+         ${surgery.notes ? `<p><strong>Notas:</strong> ${surgery.notes}</p>` : ""}
+         <p>Gracias por usar NeuroTrack.</p>
+       `,
         attachments: [
           {
             filename: `cirugia_${surgeryId}.pdf`,
@@ -165,23 +165,23 @@ export async function sendSurgeryNotificationEmails(
           from: { name: "NeuroTrack", email: "nukedev.jp@gmail.com" },
           subject: `Nueva Asignación de Cirugía - ${surgery.patientName}`,
           html: `
-            <h1>Nueva Asignación de Cirugía</h1>
-            <p>Estimado/a Dr. ${neurophysiologist.name},</p>
-            <p>Ha sido asignado/a a una cirugía con el Dr. ${surgeon.name} para el paciente ${surgery.patientName}.</p>
-            <p><strong>Detalles:</strong></p>
-            <ul>
-              <li>Hospital: ${hospital.name}</li>
-              <li>Fecha: ${surgeryDate}</li>
-              <li>Hora: ${startTime} - ${endTime} (Estimado)</li>
-              <li>Tipo de Cirugía: ${surgery.surgeryType}</li>
-              <li>Cirujano: Dr. ${surgeon.name}</li>
-              <li>Estado: ${surgery.status}</li>
-            </ul>
-            ${materialsHtml}
-            ${surgery.notes ? `<p><strong>Notas:</strong> ${surgery.notes}</p>` : ""}
-            <p>Por favor, asegúrese de estar disponible a la hora programada.</p>
-            <p>Gracias por usar NeuroTrack.</p>
-          `,
+           <h1>Nueva Asignación de Cirugía</h1>
+           <p>Estimado/a Dr. ${neurophysiologist.name},</p>
+           <p>Ha sido asignado/a a una cirugía con el Dr. ${surgeon.name} para el paciente ${surgery.patientName}.</p>
+           <p><strong>Detalles:</strong></p>
+           <ul>
+             <li>Hospital: ${hospital.name}</li>
+             <li>Fecha: ${surgeryDate}</li>
+             <li>Hora: ${startTime} - ${endTime} (Estimado)</li>
+             <li>Tipo de Cirugía: ${surgery.surgeryType}</li>
+             <li>Cirujano: Dr. ${surgeon.name}</li>
+             <li>Estado: ${surgery.status}</li>
+           </ul>
+           ${materialsHtml}
+           ${surgery.notes ? `<p><strong>Notas:</strong> ${surgery.notes}</p>` : ""}
+           <p>Por favor, asegúrese de estar disponible a la hora programada.</p>
+           <p>Gracias por usar NeuroTrack.</p>
+         `,
           attachments: [
             {
               filename: `cirugia_${surgeryId}.pdf`,
@@ -202,23 +202,23 @@ export async function sendSurgeryNotificationEmails(
           from: { name: "NeuroTrack", email: "nukedev.jp@gmail.com" },
           subject: `Confirmación de Reserva de Cirugía - ${surgery.patientName}`,
           html: `
-            <h1>Confirmación de Reserva de Cirugía</h1>
-            <p>Estimado/a ${booker.name},</p>
-            <p>La cirugía que ha programado para el paciente ${surgery.patientName} ha sido confirmada.</p>
-            <p><strong>Detalles:</strong></p>
-            <ul>
-              <li>Hospital: ${hospital.name}</li>
-              <li>Fecha: ${surgeryDate}</li>
-              <li>Hora: ${startTime} - ${endTime} (Estimado)</li>
-              <li>Tipo de Cirugía: ${surgery.surgeryType}</li>
-              <li>Cirujano: Dr. ${surgeon.name}</li>
-              <li>Neurofisiólogos: ${neurophysiologists.map((n) => `Dr. ${n.name}`).join(", ")}</li>
-              <li>Estado: ${surgery.status}</li>
-            </ul>
-            ${materialsHtml}
-            ${surgery.notes ? `<p><strong>Notas:</strong> ${surgery.notes}</p>` : ""}
-            <p>Gracias por usar NeuroTrack.</p>
-          `,
+           <h1>Confirmación de Reserva de Cirugía</h1>
+           <p>Estimado/a ${booker.name},</p>
+           <p>La cirugía que ha programado para el paciente ${surgery.patientName} ha sido confirmada.</p>
+           <p><strong>Detalles:</strong></p>
+           <ul>
+             <li>Hospital: ${hospital.name}</li>
+             <li>Fecha: ${surgeryDate}</li>
+             <li>Hora: ${startTime} - ${endTime} (Estimado)</li>
+             <li>Tipo de Cirugía: ${surgery.surgeryType}</li>
+             <li>Cirujano: Dr. ${surgeon.name}</li>
+             <li>Neurofisiólogos: ${neurophysiologists.map((n) => `Dr. ${n.name}`).join(", ")}</li>
+             <li>Estado: ${surgery.status}</li>
+           </ul>
+           ${materialsHtml}
+           ${surgery.notes ? `<p><strong>Notas:</strong> ${surgery.notes}</p>` : ""}
+           <p>Gracias por usar NeuroTrack.</p>
+         `,
           attachments: [
             {
               filename: `cirugia_${surgeryId}.pdf`,
@@ -231,6 +231,149 @@ export async function sendSurgeryNotificationEmails(
       })
     }
 
+    // NEW: Find and email department heads (jefe_departamento) for this hospital
+    try {
+      const usersRef = collection(db, "users")
+      const deptHeadsQuery = query(
+        usersRef,
+        where("role", "==", "jefe_departamento"),
+        where("hospitalId", "==", surgery.hospitalId),
+      )
+
+      const deptHeadsSnapshot = await getDocs(deptHeadsQuery)
+
+      if (!deptHeadsSnapshot.empty) {
+        console.log(`Found ${deptHeadsSnapshot.size} department heads to notify`)
+
+        for (const deptHeadDoc of deptHeadsSnapshot.docs) {
+          const deptHead = { id: deptHeadDoc.id, ...deptHeadDoc.data() } as User
+
+          // Skip if this department head is already the booker or surgeon
+          if ((booker && booker.id === deptHead.id) || surgeon.id === deptHead.id) {
+            console.log(`Skipping department head ${deptHead.name} as they are already notified as booker or surgeon`)
+            continue
+          }
+
+          console.log(`Sending notification to department head: ${deptHead.name} (${deptHead.email})`)
+
+          await addDoc(collection(db, "mail"), {
+            to: deptHead.email,
+            message: {
+              from: { name: "NeuroTrack", email: "nukedev.jp@gmail.com" },
+              subject: `Nueva Cirugía Programada - ${surgery.patientName}`,
+              html: `
+               <h1>Nueva Cirugía Programada</h1>
+               <p>Estimado/a ${deptHead.name},</p>
+               <p>Se ha programado una nueva cirugía en su hospital.</p>
+               <p><strong>Detalles:</strong></p>
+               <ul>
+                 <li>Paciente: ${surgery.patientName}</li>
+                 <li>Hospital: ${hospital.name}</li>
+                 <li>Fecha: ${surgeryDate}</li>
+                 <li>Hora: ${startTime} - ${endTime} (Estimado)</li>
+                 <li>Tipo de Cirugía: ${surgery.surgeryType}</li>
+                 <li>Cirujano: Dr. ${surgeon.name}</li>
+                 <li>Neurofisiólogos: ${neurophysiologists.map((n) => `Dr. ${n.name}`).join(", ")}</li>
+                 <li>Estado: ${surgery.status}</li>
+                 <li>Programado por: ${booker ? booker.name : surgeon.name}</li>
+               </ul>
+               ${materialsHtml}
+               ${surgery.notes ? `<p><strong>Notas:</strong> ${surgery.notes}</p>` : ""}
+               <p>Como Jefe de Departamento, se le notifica de todas las cirugías programadas en su hospital.</p>
+               <p>Gracias por usar NeuroTrack.</p>
+             `,
+              attachments: [
+                {
+                  filename: `cirugia_${surgeryId}.pdf`,
+                  content: pdfAttachment,
+                  contentType: "application/pdf",
+                  encoding: "base64",
+                },
+              ],
+            },
+          })
+        }
+      } else {
+        console.log("No department heads found for this hospital")
+      }
+    } catch (error) {
+      console.error("Error sending emails to department heads:", error)
+      // Continue even if department head emails fail
+    }
+
+    // NEW: Find and email administrative staff (administrativo) for this hospital
+    try {
+      // Only send to administrative staff if the booker is not already an admin
+      if (!booker || booker.role !== "administrativo") {
+        const usersRef = collection(db, "users")
+        const adminStaffQuery = query(
+          usersRef,
+          where("role", "==", "administrativo"),
+          where("hospitalId", "==", surgery.hospitalId),
+        )
+
+        const adminStaffSnapshot = await getDocs(adminStaffQuery)
+
+        if (!adminStaffSnapshot.empty) {
+          console.log(`Found ${adminStaffSnapshot.size} administrative staff to notify`)
+
+          for (const adminDoc of adminStaffSnapshot.docs) {
+            const admin = { id: adminDoc.id, ...adminDoc.data() } as User
+
+            // Skip if this admin is already the booker
+            if (booker && booker.id === admin.id) {
+              console.log(`Skipping admin ${admin.name} as they are already notified as booker`)
+              continue
+            }
+
+            console.log(`Sending notification to administrative staff: ${admin.name} (${admin.email})`)
+
+            await addDoc(collection(db, "mail"), {
+              to: admin.email,
+              message: {
+                from: { name: "NeuroTrack", email: "nukedev.jp@gmail.com" },
+                subject: `Nueva Cirugía Programada - ${surgery.patientName}`,
+                html: `
+                 <h1>Nueva Cirugía Programada</h1>
+                 <p>Estimado/a ${admin.name},</p>
+                 <p>Se ha programado una nueva cirugía en su hospital.</p>
+                 <p><strong>Detalles:</strong></p>
+                 <ul>
+                   <li>Paciente: ${surgery.patientName}</li>
+                   <li>Hospital: ${hospital.name}</li>
+                   <li>Fecha: ${surgeryDate}</li>
+                   <li>Hora: ${startTime} - ${endTime} (Estimado)</li>
+                   <li>Tipo de Cirugía: ${surgery.surgeryType}</li>
+                   <li>Cirujano: Dr. ${surgeon.name}</li>
+                   <li>Neurofisiólogos: ${neurophysiologists.map((n) => `Dr. ${n.name}`).join(", ")}</li>
+                   <li>Estado: ${surgery.status}</li>
+                   <li>Programado por: ${booker ? booker.name : surgeon.name}</li>
+                 </ul>
+                 ${materialsHtml}
+                 ${surgery.notes ? `<p><strong>Notas:</strong> ${surgery.notes}</p>` : ""}
+                 <p>Como Personal Administrativo, se le notifica de todas las cirugías programadas en su hospital.</p>
+                 <p>Gracias por usar NeuroTrack.</p>
+               `,
+                attachments: [
+                  {
+                    filename: `cirugia_${surgeryId}.pdf`,
+                    content: pdfAttachment,
+                    contentType: "application/pdf",
+                    encoding: "base64",
+                  },
+                ],
+              },
+            })
+          }
+        } else {
+          console.log("No administrative staff found for this hospital")
+        }
+      }
+    } catch (error) {
+      console.error("Error sending emails to administrative staff:", error)
+      // Continue even if administrative staff emails fail
+    }
+
     // Send to additional recipients if provided
     if (additionalRecipients.length > 0) {
       for (const email of additionalRecipients) {
@@ -240,24 +383,24 @@ export async function sendSurgeryNotificationEmails(
             from: { name: "NeuroTrack", email: "nukedev.jp@gmail.com" },
             subject: `Información de Cirugía - ${surgery.patientName}`,
             html: `
-              <h1>Información de Cirugía</h1>
-              <p>Se ha programado una nueva cirugía con los siguientes detalles:</p>
-              <p><strong>Detalles:</strong></p>
-              <ul>
-                <li>Paciente: ${surgery.patientName}</li>
-                <li>Hospital: ${hospital.name}</li>
-                <li>Fecha: ${surgeryDate}</li>
-                <li>Hora: ${startTime} - ${endTime} (Estimado)</li>
-                <li>Tipo de Cirugía: ${surgery.surgeryType}</li>
-                <li>Cirujano: Dr. ${surgeon.name}</li>
-                <li>Neurofisiólogos: ${neurophysiologists.map((n) => `Dr. ${n.name}`).join(", ")}</li>
-                <li>Estado: ${surgery.status}</li>
-              </ul>
-              ${materialsHtml}
-              ${surgery.notes ? `<p><strong>Notas:</strong> ${surgery.notes}</p>` : ""}
-              <p>Este es un mensaje informativo. Por favor, no responda a este correo.</p>
-              <p>Gracias por usar NeuroTrack.</p>
-            `,
+             <h1>Información de Cirugía</h1>
+             <p>Se ha programado una nueva cirugía con los siguientes detalles:</p>
+             <p><strong>Detalles:</strong></p>
+             <ul>
+               <li>Paciente: ${surgery.patientName}</li>
+               <li>Hospital: ${hospital.name}</li>
+               <li>Fecha: ${surgeryDate}</li>
+               <li>Hora: ${startTime} - ${endTime} (Estimado)</li>
+               <li>Tipo de Cirugía: ${surgery.surgeryType}</li>
+               <li>Cirujano: Dr. ${surgeon.name}</li>
+               <li>Neurofisiólogos: ${neurophysiologists.map((n) => `Dr. ${n.name}`).join(", ")}</li>
+               <li>Estado: ${surgery.status}</li>
+             </ul>
+             ${materialsHtml}
+             ${surgery.notes ? `<p><strong>Notas:</strong> ${surgery.notes}</p>` : ""}
+             <p>Este es un mensaje informativo. Por favor, no responda a este correo.</p>
+             <p>Gracias por usar NeuroTrack.</p>
+           `,
             attachments: [
               {
                 filename: `cirugia_${surgeryId}.pdf`,
