@@ -127,6 +127,7 @@ export async function sendSurgeryNotificationEmails(
     await addDoc(collection(db, "mail"), {
       to: surgeon.email,
       message: {
+        from: { name: "NeuroTrack", email: "nukedev.jp@gmail.com" },
         subject: `Confirmación de Cirugía - ${surgery.patientName}`,
         html: `
           <h1>Confirmación de Cirugía</h1>
@@ -161,6 +162,7 @@ export async function sendSurgeryNotificationEmails(
       await addDoc(collection(db, "mail"), {
         to: neurophysiologist.email,
         message: {
+          from: { name: "NeuroTrack", email: "nukedev.jp@gmail.com" },
           subject: `Nueva Asignación de Cirugía - ${surgery.patientName}`,
           html: `
             <h1>Nueva Asignación de Cirugía</h1>
@@ -197,6 +199,7 @@ export async function sendSurgeryNotificationEmails(
       await addDoc(collection(db, "mail"), {
         to: booker.email,
         message: {
+          from: { name: "NeuroTrack", email: "nukedev.jp@gmail.com" },
           subject: `Confirmación de Reserva de Cirugía - ${surgery.patientName}`,
           html: `
             <h1>Confirmación de Reserva de Cirugía</h1>
@@ -234,6 +237,7 @@ export async function sendSurgeryNotificationEmails(
         await addDoc(collection(db, "mail"), {
           to: email,
           message: {
+            from: { name: "NeuroTrack", email: "nukedev.jp@gmail.com" },
             subject: `Información de Cirugía - ${surgery.patientName}`,
             html: `
               <h1>Información de Cirugía</h1>
