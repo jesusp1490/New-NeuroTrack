@@ -4,7 +4,7 @@ import React from "react"
 
 import { useState, useEffect, useCallback } from "react"
 import { format } from "date-fns"
-import { collection, query, where, getDocs } from "firebase/firestore"
+import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -28,7 +28,7 @@ export interface SlotInfo {
   resourceId?: string
   slots?: Date[]
   action?: string
-  shiftIds?: string[] // Added to support multiple shifts
+  shiftIds?: string[] // Add this to receive shift IDs
 }
 
 interface Props {
@@ -52,6 +52,26 @@ export default function SurgeryBookingDialog({
   hospitalName,
   surgeryTypes: propSurgeryTypes,
 }: Props) {
+  // Log the selected slot for debugging
+  useEffect(() => {
+    if (selectedSlot) {
+      console.log("SurgeryBookingDialog received selectedSlot:", {
+        start: selectedSlot.start.toISOString(),
+        startDate: selectedSlot.start.toDateString(),
+        year: selectedSlot.start.getFullYear(),
+        month: selectedSlot.start.getMonth(),
+        day: selectedSlot.start.getDate(),
+        hours: selectedSlot.start.getHours(),
+        minutes: selectedSlot.start.getMinutes(),
+        time: format(selectedSlot.start, "HH:mm"),
+        end: selectedSlot.end?.toISOString(),
+        endTime: selectedSlot.end ? format(selectedSlot.end, "HH:mm") : "undefined",
+      })
+    } else {
+      console.log("SurgeryBookingDialog: No selectedSlot provided")
+    }
+  }, [selectedSlot])
+
   // For admin users, check if there's a saved hospital in localStorage
   const isAdminUser = userData?.role === "administrativo" || userData?.role === "jefe_departamento"
   const savedHospital = isAdminUser ? getSelectedHospital() : null
@@ -62,11 +82,98 @@ export default function SurgeryBookingDialog({
     console.log(`Using saved hospital from localStorage: ${savedHospital.id} (${savedHospital.name})`)
   }
 
-  const [date, setDate] = useState<Date | undefined>(selectedSlot?.start)
-  const [time, setTime] = useState(selectedSlot ? format(selectedSlot.start, "HH:mm") : "09:00")
-  const [endTime, setEndTime] = useState(
-    selectedSlot ? format(selectedSlot.end || new Date(selectedSlot.start.getTime() + 60 * 60000), "HH:mm") : "10:00",
-  )
+  // Initialize with the selected slot date or current date
+  // Create a new Date object to avoid reference issues
+  const [date, setDate] = useState<Date | undefined>(() => {
+    if (selectedSlot?.start) {
+      // Create a new Date object with the exact same year, month, day
+      const newDate = new Date(
+        selectedSlot.start.getFullYear(),
+        selectedSlot.start.getMonth(),
+        selectedSlot.start.getDate(),
+      )
+      console.log("Initializing date state with:", {
+        date: newDate.toISOString(),
+        year: newDate.getFullYear(),
+        month: newDate.getMonth(),
+        day: newDate.getDate(),
+      })
+      return newDate
+    } else {
+      console.log("Initializing date state with current date")
+      return new Date()
+    }
+  })
+
+  // Format the time from the selected slot or use default
+  const [time, setTime] = useState(() => {
+    if (selectedSlot?.start) {
+      const timeStr = format(selectedSlot.start, "HH:mm")
+      console.log("Initializing time state with:", timeStr)
+      return timeStr
+    } else {
+      return "09:00"
+    }
+  })
+
+  // Format the end time from the selected slot or calculate a default
+  const [endTime, setEndTime] = useState(() => {
+    if (selectedSlot?.end) {
+      const endTimeStr = format(selectedSlot.end, "HH:mm")
+      console.log("Initializing endTime state with:", endTimeStr)
+      return endTimeStr
+    } else if (selectedSlot?.start) {
+      const endDate = new Date(
+        selectedSlot.start.getFullYear(),
+        selectedSlot.start.getMonth(),
+        selectedSlot.start.getDate(),
+        selectedSlot.start.getHours() + 1,
+        selectedSlot.start.getMinutes(),
+      )
+      const endTimeStr = format(endDate, "HH:mm")
+      console.log("Calculating endTime from start:", endTimeStr)
+      return endTimeStr
+    } else {
+      return "10:00"
+    }
+  })
+
+  // Update date state when selectedSlot changes
+  useEffect(() => {
+    if (selectedSlot?.start) {
+      // Create a new Date object with the exact same year, month, day
+      const newDate = new Date(
+        selectedSlot.start.getFullYear(),
+        selectedSlot.start.getMonth(),
+        selectedSlot.start.getDate(),
+      )
+      console.log("Updating date state from selectedSlot change:", {
+        date: newDate.toISOString(),
+        year: newDate.getFullYear(),
+        month: newDate.getMonth(),
+        day: newDate.getDate(),
+      })
+      setDate(newDate)
+
+      // Also update the time
+      setTime(format(selectedSlot.start, "HH:mm"))
+
+      // Update end time if available, otherwise calculate it
+      if (selectedSlot.end) {
+        setEndTime(format(selectedSlot.end, "HH:mm"))
+      } else {
+        const endDate = new Date(
+          selectedSlot.start.getFullYear(),
+          selectedSlot.start.getMonth(),
+          selectedSlot.start.getDate(),
+          selectedSlot.start.getHours() + 1,
+          selectedSlot.start.getMinutes(),
+        )
+        setEndTime(format(endDate, "HH:mm"))
+      }
+    }
+  }, [selectedSlot])
+
   const [availableNeurophysiologists, setAvailableNeurophysiologists] = useState<User[]>([])
   const [selectedNeurophysiologists, setSelectedNeurophysiologists] = useState<string[]>([])
   const [surgeryType, setSurgeryType] = useState("")
@@ -304,8 +411,45 @@ export default function SurgeryBookingDialog({
     if (date) {
       checkAvailableNeurophysiologists(date, time)
       fetchAvailableSurgeons(date, time, endTime)
+
+      // Fix the TypeScript errors by adding proper null checks
+      if (selectedSlot?.shiftIds && selectedSlot.shiftIds.length > 0) {
+        // If we have shift IDs, we need to fetch the neurophysiologists for these shifts
+        const fetchNeurophysiologistsForShifts = async () => {
+          try {
+            const neurophysiologistIds: string[] = []
+
+            // Make sure shiftIds is defined before iterating
+            const shiftIdsToUse = selectedSlot.shiftIds || []
+
+            for (const shiftId of shiftIdsToUse) {
+              const shiftRef = doc(db, "shifts", shiftId)
+              const shiftSnap = await getDoc(shiftRef)
+
+              if (shiftSnap.exists()) {
+                const shiftData = shiftSnap.data()
+                if (shiftData.neurophysiologistId) {
+                  neurophysiologistIds.push(shiftData.neurophysiologistId)
+                }
+              }
+            }
+
+            if (neurophysiologistIds.length > 0) {
+              setSelectedNeurophysiologists(neurophysiologistIds)
+              // Make sure shiftIds is defined before setting state
+              if (selectedSlot.shiftIds) {
+                setSelectedShiftIds([...selectedSlot.shiftIds])
+              }
+            }
+          } catch (error) {
+            console.error("Error fetching neurophysiologists for shifts:", error)
+          }
+        }
+
+        fetchNeurophysiologistsForShifts()
+      }
     }
-  }, [date, time, endTime, checkAvailableNeurophysiologists, fetchAvailableSurgeons])
+  }, [date, time, endTime, checkAvailableNeurophysiologists, fetchAvailableSurgeons, selectedSlot?.shiftIds])
 
   // Update selected shift IDs when neurophysiologists selection changes
   useEffect(() => {
@@ -456,13 +600,7 @@ export default function SurgeryBookingDialog({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="date">Fecha</Label>
-            <Calendar
-              mode="single"
-              selected={date}
-              onSelect={setDate}
-              className="rounded-md border"
-              disabled={(date) => date < new Date()}
-            />
+            <Calendar mode="single" selected={date} onSelect={setDate} className="rounded-md border" />
           </div>
 
           <div className="space-y-2">

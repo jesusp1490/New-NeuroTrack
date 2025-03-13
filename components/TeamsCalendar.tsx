@@ -3,7 +3,7 @@
 import React from "react"
 
 import { useState, useEffect } from "react"
-import { Calendar, Views, momentLocalizer } from "react-big-calendar"
+import { Calendar, Views, momentLocalizer, type View } from "react-big-calendar"
 import moment from "moment"
 import "moment/locale/es"
 import "react-big-calendar/lib/css/react-big-calendar.css"
@@ -27,6 +27,7 @@ interface Event {
   patientName?: string
   booked?: boolean
   style?: React.CSSProperties
+  shiftIds?: string[] // Add this to pass shift IDs when clicked
 }
 
 interface TeamsCalendarProps {
@@ -34,9 +35,13 @@ interface TeamsCalendarProps {
   onEventClick: (event: Event) => void
   onSlotClick: (slotInfo: Date) => void
   onNewMeeting: () => void
+  onShiftClick?: (start: Date, end: Date, shiftIds?: string[]) => void
+  onNavigate?: (date: Date, view: View) => void // Fix: Use View type
   userRole?: string
   actualUserRole?: string
-  showNewSurgeryButton?: boolean // Add this prop to control button visibility from parent
+  showNewSurgeryButton?: boolean
+  initialDate?: Date
+  initialView?: View // Fix: Use View type
 }
 
 export function TeamsCalendar({
@@ -44,11 +49,17 @@ export function TeamsCalendar({
   onEventClick,
   onSlotClick,
   onNewMeeting,
+  onShiftClick,
+  onNavigate,
   userRole = "cirujano",
   actualUserRole,
-  showNewSurgeryButton = true, // Default to true but let parent override
+  showNewSurgeryButton = true,
+  initialDate = new Date(),
+  initialView = Views.WEEK,
 }: TeamsCalendarProps) {
   const [calendarEvents, setCalendarEvents] = useState<any[]>([])
+  const [view, setView] = useState<View>(initialView) // Fix: Use View type
+  const [currentDate, setCurrentDate] = useState(initialDate)
 
   useEffect(() => {
     const transformedEvents = events.map((event) => ({
@@ -72,18 +83,70 @@ export function TeamsCalendar({
     setCalendarEvents(transformedEvents)
   }, [events])
 
+  // Update currentDate when initialDate changes
+  useEffect(() => {
+    setCurrentDate(initialDate)
+  }, [initialDate])
+
   const handleEventClick = (event: Event) => {
-    onEventClick(event)
+    // If it's an available shift, handle it differently
+    if (event.type === "shift" && !event.booked && onShiftClick) {
+      onShiftClick(event.start, event.end, event.shiftIds)
+    } else {
+      onEventClick(event)
+    }
   }
 
   const handleSlotClick = (slotInfo: any) => {
-    onSlotClick(slotInfo.start)
+    console.log("TeamsCalendar slot clicked:", {
+      date: slotInfo.start.toISOString(),
+      year: slotInfo.start.getFullYear(),
+      month: slotInfo.start.getMonth(),
+      day: slotInfo.start.getDate(),
+      hours: slotInfo.start.getHours(),
+      minutes: slotInfo.start.getMinutes(),
+    })
+
+    // Create a new Date object to avoid reference issues
+    const clickedDate = new Date(
+      slotInfo.start.getFullYear(),
+      slotInfo.start.getMonth(),
+      slotInfo.start.getDate(),
+      slotInfo.start.getHours(),
+      slotInfo.start.getMinutes(),
+    )
+
+    console.log("TeamsCalendar created new Date object:", {
+      date: clickedDate.toISOString(),
+      year: clickedDate.getFullYear(),
+      month: clickedDate.getMonth(),
+      day: clickedDate.getDate(),
+      hours: clickedDate.getHours(),
+      minutes: clickedDate.getMinutes(),
+    })
+
+    onSlotClick(clickedDate)
   }
 
-  // Only show the button if explicitly allowed by parent and user has correct role
   const shouldShowButton =
     showNewSurgeryButton &&
     (actualUserRole === "cirujano" || actualUserRole === "administrativo" || actualUserRole === "jefe_departamento")
+
+  // Handle view change
+  const handleViewChange = (newView: View) => {
+    setView(newView)
+    if (onNavigate) {
+      onNavigate(currentDate, newView)
+    }
+  }
+
+  // Handle date navigation
+  const handleNavigate = (newDate: Date) => {
+    setCurrentDate(newDate)
+    if (onNavigate) {
+      onNavigate(newDate, view)
+    }
+  }
 
   return (
     <div className="h-[600px] flex flex-col">
@@ -103,7 +166,10 @@ export function TeamsCalendar({
           endAccessor="end"
           style={{ height: "100%" }}
           views={[Views.WEEK, Views.DAY]}
-          defaultView={Views.WEEK}
+          view={view}
+          date={currentDate}
+          onView={handleViewChange}
+          onNavigate={handleNavigate}
           onSelectEvent={handleEventClick}
           onSelectSlot={handleSlotClick}
           selectable
